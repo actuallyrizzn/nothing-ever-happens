@@ -1,178 +1,409 @@
-# Backtesting — proposed plan
+# Backtesting — detailed plan
 
-This document proposes how to add **backtesting** to the Nothing Ever Happens / Polymarket bot: goals, constraints from the current codebase, data that exists on Polymarket’s side, fidelity tiers, architecture sketch, phases, and risks. It is a **plan only**; no implementation is implied.
+This document is the **implementation-oriented plan** for backtesting the Nothing Ever Happens / Polymarket bot. It incorporates product decisions from design discussion: **what to measure**, **what data to use**, **archive vs live API**, **Polymarket limits**, and **how the dashboard should behave**.
+
+It remains a **plan** until built; section numbers are stable for review.
 
 ---
 
-## 1. Goals (what “backtesting” should answer)
+## Executive summary
 
-| Goal | Description |
+| Decision | Choice |
 | --- | --- |
-| **Parameter sensitivity** | Compare `NothingHappensConfig` (max entry, slippage, cash %, ETA windows, poll intervals, caps) on the **same historical path** without live capital. |
-| **Regime behavior** | See how often the strategy would have entered, hit risk limits, or idled under different market conditions. |
-| **Regression safety** | After code changes, re-run a fixed scenario and diff metrics (trade count, PnL proxy, max “exposure” path). |
-| **Honest limits** | Report **fidelity level** (midpoint vs L2-replay) so results are not mistaken for guaranteed live performance. |
-
-Non-goals for an initial release:
-
-- Regulatory or tax reporting (“verified” backtested returns).
-- Sub-second HFT-style simulation without external L2 archives.
+| **Primary historical signal** | Polymarket CLOB **`GET /prices-history`** per **NO `token_id`**, stored locally after bulk ingest. |
+| **Core per-market question** | **Earliest time \(t\)** at which **your entry predicate** (from `NothingHappensConfig` + spread model) is true on the cached price path — **not** a fixed “first minute” or “first 15s” window. |
+| **Trades tape** | **Supplementary** (validation, volume research) — **not** the primary series for “when would **our** bot fire?” |
+| **Settings / UI interaction** | **Recompute locally** against the archive when users change dials; **do not** re-fetch a year of history per tweak. |
+| **Network guardrails** | **Rate limits + quotas** on any code path that still hits Polymarket (cache miss, refresh, universe extend). |
+| **Fidelity v1** | **Tier A** (price history + synthetic ask / spread); **Tier B** optional (vendor 1m L2). |
 
 ---
 
-## 2. Current system — what we have today
+## 1. Goals and non-goals
 
-### 2.1 Live and paper runtimes
+### 1.1 Goals
 
-- **`NothingHappensRuntime`** (`bot/strategy/nothing_happens.py`) drives discovery, eligibility, price cycles, pending entries, dispatch, and risk hooks. It is **async**, **multi-market**, and tightly coupled to **wall clock** (`time.time()`, asyncio loop time, `ThreadPoolExecutor` for blocking CLOB calls).
-- **`PaperExchangeClient`** (`bot/exchange/paper.py`) simulates fills using a **configurable mid** and synthetic tight book — it does **not** replay history; it is unsuitable as a backtest engine by itself.
-- **`PolymarketClobExchangeClient`** hits real **`/book`**, orders, balances — correct for live/paper-forward tests, not for historical replay without substitution.
-
-### 2.2 Decisions that need historical inputs
-
-The strategy’s entry path (simplified):
-
-1. **Universe** — `fetch_candidate_markets` / Gamma-derived standalone markets (binary NO, filters, ETA bounds, `max_end_date_months`).
-2. **Per eligible market** — `get_order_book(no_token_id)` → **best ask** on NO vs `max_entry_price` and slippage logic (`_submitted_buy_price`, `_build_entry_plan`).
-3. **Sizing** — cash %, min/fixed USD, min shares vs book rules.
-4. **Risk** — `RiskController` exposure caps, optional daily drawdown on **balance** (live-specific; backtest needs a **simulated cash / equity** model).
-
-Backtesting must feed **step (2)** with prices or books **as of simulated time**, not “now”.
-
-### 2.3 Existing observability
-
-- **`trade_ledger`** / `trade_events` / `trades.jsonl` — **append-only post-hoc** records; useful to **validate** a backtest against what actually happened in paper/live, not to drive simulation.
-- **`scripts/parse_logs.py`** — reporting patterns could inspire **backtest output** (HTML/CSV).
-
----
-
-## 3. External data — research summary
-
-### 3.1 Polymarket CLOB (official)
-
-| Capability | Use for backtest | Limitation |
+| ID | Goal | Success signal |
 | --- | --- | --- |
-| **`GET /prices-history`** (`market` = token id, optional `startTs` / `endTs`, `interval`, `fidelity`) | Time series of **price points** `{t, p}` per outcome token | This is **not** full L2; typically used as **mid or last** proxy. Parameter name `market` is the **token id** (same id used for NO side in our strategy). See [CLOB timeseries docs](https://docs.polymarket.com/developers/CLOB/timeseries). |
-| **`GET /book`** (current) | Live/paper only | No official **historical order book snapshot API** documented for arbitrary past timestamps. |
+| G1 | **Parameter sensitivity** | Same universe, two configs → comparable metrics (entries, rough PnL, time-to-first-entry distribution). |
+| G2 | **First executable moment** | For each market, report **`t_first`** = min time predicate holds (subject to discretization policy in §5). |
+| G3 | **Resolution PnL** | Binary payoff for simulated NO hold to resolution when outcome known. |
+| G4 | **Fast UX** | Dashboard / CLI backtest completes in **seconds** after cache warm (not proportional to re-downloading a year). |
+| G5 | **Honest reporting** | Every run exports **fidelity tier**, **spread model version**, **universe manifest hash**. |
 
-**Implication:** A **first-party–only** MVP backtest will be **midpoint- or trade-price–based**, with an explicit **spread model** (e.g. synthetic ask = min(1 - yes_mid, model) or fixed half-spread in ticks) unless we buy or ingest third-party L2.
+### 1.2 Non-goals (v1)
 
-### 3.2 Third-party historical L2 (example)
-
-- Vendors such as **PolymarketData** advertise **minute-level historical L2** and slug-aligned endpoints (e.g. books + prices), suitable for **execution-aware** replay (walk the ask ladder for size). This is **paid**, **separate contract**, and would be an optional **Tier B** data source — not required to ship a useful Tier A.
-
-### 3.3 Gamma / resolution
-
-- **Gamma API** is already used for resolution checks (`_check_gamma_resolution` in `live_recovery.py`). For backtests that run **through** resolution, we need **final outcome** per market to mark PnL ($1 / $0 per share style). Resolved markets’ outcomes are available from Gamma-style endpoints; **exact historical “as-of” metadata** for every past day is harder — many backtests instead fix an **event set** (list of slugs + token ids) and only need end-of-life outcome.
-
-### 3.4 Discovery bias (important)
-
-- **`fetch_candidate_markets`** today reflects **current** Gamma open markets and filters. For a past window, the **set of markets that existed and were “discoverable”** is not trivially reconstructable without **snapshots** of Gamma (or a frozen list of slugs/token ids for the experiment).
-- **Practical approach:** Phase 1 backtests should use a **user-supplied universe file** (slug, `no_token_id`, `end_ts`, optional category) captured once, or a **curated list** of resolved markets for research — not “whatever Gamma returns today.”
+- Guaranteed parity with **live** fills (no hidden liquidity, no queue position).
+- **Dynamic discovery replay** (“exactly what Gamma would have returned each day last year”) without frozen universe or separate snapshot infra.
+- Regulatory / tax-grade “verified” returns.
 
 ---
 
-## 4. Fidelity tiers (recommended product framing)
+## 2. Definitions
 
-| Tier | Data | Fill model | Credibility | Effort |
-| --- | --- | --- | --- | --- |
-| **A — Mid / history proxy** | `prices-history` for NO token (and/or derive NO from YES if only one side stored) | Synthetic book: e.g. ask = clamp(mid + spread_model), size = large | Good for **ranking configs** and rough PnL | Low |
-| **B — L2 snapshots** | External minute L2 or self-collected snapshots | Walk asks to fill `target_notional`; partial fill optional | Better **slippage / size** realism | Medium + data cost |
-| **C — Event-driven matching** | Same as B + queue model | Limit orders in book, matching engine | Research-grade; heavy | High |
+### 2.1 “First window when a trade would execute”
 
-**Recommendation:** Ship **Tier A** behind a flag `--backtest-fidelity mid`, design **`Exchange` interface** so **Tier B** can plug in later without rewriting the strategy loop.
+**Not** defined as calendar “first minute of listing” or “first 15 seconds.”
 
----
+**Defined as:**
 
-## 5. Architecture proposal
+> Let \(P(t)\) be the **executable price proxy** for the NO leg at time \(t\) (from archived series + spread model). Let \(\text{Predicate}(P, \text{cfg})\) encode **max entry price**, **slippage / submitted price rule**, **min notional / min shares** (using tick metadata if available). Then  
+> **`t_first = \min \{ t \in \mathcal{T} : \text{Predicate}(P(t), \text{cfg}) \}`**  
+> where \(\mathcal{T}\) is the set of **evaluation times** (see §5.2).
 
-### 5.1 Core idea: simulated clock + historical exchange
+If the predicate never holds, **`t_first = \emptyset`** (no simulated entry).
 
-- Introduce a **`HistoricalClock`** (or inject `now_fn` / `sim_time`) used anywhere the strategy compares **event time** vs **market end** and schedules polls.
-- Implement **`HistoricalExchange`** (or `ReplayExchange`) implementing the same methods the strategy needs:
+### 2.2 Price path vs trades path
 
-  - `get_order_book(token_id)` → returns a snapshot **for `sim_time`** from preloaded series or L2 store.
-  - `get_collateral_balance` / `get_conditional_balance` → return **simulated** wallet state updated by the backtest runner.
-  - `place_market_order` / fills → update simulated balances; no HTTP.
-
-- **Refactor surface (minimal):** Prefer **thin** changes to `NothingHappensRuntime` — e.g. optional `clock` and `exchange` constructed for replay — rather than duplicating the whole strategy file. Longer term, extract **pure** “would we enter at this book + cfg?” into a function to unit-test without asyncio.
-
-### 5.2 Runner modes
-
-| Mode | Description |
-| --- | --- |
-| **CLI** | `python -m bot.backtest run --config backtest.yaml --universe markets.csv --from ... --to ...` — fits automation and CI. |
-| **Library** | `run_backtest(scenario)` returning a result object — for notebooks and tests. |
-| **Dashboard (later)** | Upload universe + date range, job queue, results page — **Phase 3+**; not required for value. |
-
-### 5.3 Data prep pipeline
-
-1. **Universe builder** (one-off script): given slugs or Gamma query **at research time**, output `universe.jsonl` with `slug`, `no_token_id`, `condition_id`, `end_ts`, `question`.
-2. **Price fetcher**: for each token, call `prices-history` with `[startTs, endTs]` aligned to backtest window; store **Parquet or SQLite** locally (rate limits → cache aggressively).
-3. **Backtest engine**: step `sim_time` at configurable resolution (e.g. 1h or 15m bars first; match `fidelity` to avoid false precision).
-
-### 5.4 Risk and PnL in backtest
-
-- **Exposure caps** — wire existing `RiskController` with **simulated** `open_exposure_*` updates on each simulated fill (already conceptually aligned).
-- **Daily drawdown on balance** — either **disable** in backtest v1 or feed **simulated USDC equity** each step (mark positions to mid or to resolution at end).
-- **Resolution PnL** — at `end_ts` (or next bar after), apply **binary payoff** for NO position using Gamma outcome (or CSV ground truth for Tier A tests).
-
-### 5.5 Outputs
-
-- **Trades table** — same schema spirit as ledger (slug, time, side, price, notional, shares).
-- **Equity curve** — CSV + optional HTML report (reuse styling ideas from `parse_logs.py`).
-- **Summary metrics** — total return, max drawdown, # entries, time in market, hit rate (if resolutions known), comparison vs baseline config.
-
----
-
-## 6. Phased delivery plan
-
-| Phase | Scope | Exit criteria |
+| Source | What it is | Use |
 | --- | --- | --- |
-| **0 — Spike (few days)** | Fetch `prices-history` for 3–5 NO tokens; document field mapping vs `get_order_book`; prototype **one** manual replay of “would enter?” at a single timestamp. | Written spike notes + sample notebook or script in `scripts/` |
-| **1 — Tier A engine** | `HistoricalExchange` + stepped `sim_time` + universe file; **single-threaded** loop (can still use asyncio with frozen clock); no dashboard. | Reproducible CLI run; golden-file test on tiny fixture |
-| **2 — Parity features** | ETA filters, `max_end_date_months` equivalent on universe, risk caps, multi-market interleaving same as live ordering assumptions. | Metrics within expected bounds vs simplified analytical case |
-| **3 — UX & CI** | Documented workflow; optional GitHub Action on fixture-only backtest (no network). | Doc + CI job |
-| **4 — Tier B (optional)** | Adapter for external L2 provider; spread calibration report. | Side-by-side Tier A vs B on same universe |
+| **`prices-history`** | `{t, p}` series per **token id** | **Primary** path for \(P(t)\) proxy across full market life. |
+| **Data API / on-chain trades** | Discrete fills by **anyone** | **Secondary** — “did the market trade near our threshold?” not “would **we** have passed risk + limit logic at \(t\)?” |
+
+### 2.3 Fidelity tiers (unchanged names, sharper text)
+
+| Tier | Input | Predicate uses | Limitation |
+| --- | --- | --- | --- |
+| **A** | `prices-history` + optional tick/min size from Gamma snapshot | Synthetic NO ask from \(p\) + model | Not true L2 depth. |
+| **B** | Minute L2 archive (e.g. PolymarketData) or self-snapshotted books | Walk ask ladder for size | Paid / heavier ingest. |
+| **C** | Full matching model | Research | Out of scope v1. |
 
 ---
 
-## 7. Risks and mitigations
+## 3. Polymarket API — rate limits and cost (planning numbers)
 
-| Risk | Mitigation |
+**Source:** [Polymarket rate limits](https://docs.polymarket.com/api-reference/rate-limits) (verify periodically; values can change).
+
+### 3.1 Limits relevant to ingestion
+
+| Bucket | Documented limit | Notes |
+| --- | --- | --- |
+| **`GET /prices-history`** | **1,000 requests / 10 s** | Per-endpoint sliding window. |
+| **CLOB general** | **9,000 requests / 10 s** | Shared across CLOB endpoints — ingestion jobs must account for **other** calls (`/book`, Gamma, etc.). |
+| **Enforcement style** | Cloudflare **throttle / queue** | Over limit → slowdown, not always clean 429; design jobs to **stay under** limits. |
+
+**Rough capacity:** ~100 `/prices-history` calls per second **sustained** if you dedicated the whole CLOB budget to that endpoint — in practice share with retries and other traffic; **plan for ~50–200 req/s effective** only after measurement.
+
+### 3.2 Cost
+
+- **`/prices-history`** is documented as **public** (no API key in OpenAPI for that operation): **[docs](https://docs.polymarket.com/developers/CLOB/timeseries)**.
+- **Dollar cost to Polymarket:** **$0** for documented public reads.
+- **Your costs:** compute, storage, egress from your infra, optional **paid third-party** datasets, and **engineering time** if you exceed limits and need backoff/retry logic.
+
+### 3.3 Known data caveats (operations)
+
+- Some **closed** or migrated markets return **empty** `history` — handle as **missing**; do not assume universal coverage. See e.g. community reports in [py-clob-client#189](https://github.com/Polymarket/py-clob-client/issues/189).
+- **`fidelity`** is described in **minutes** — coarser than “tick”; aligns with Tier A honesty.
+
+---
+
+## 4. Recommended strategy: archive-first + local recompute + guardrails
+
+### 4.1 Why not “rate-limit only” on dial changes?
+
+If every backtest parameter change **re-hit** Polymarket for **N markets × full date range**, you get:
+
+- **Latency** proportional to **N** and network.
+- **Throttle risk** even within 1k/10s (large **N** or parallel users).
+- **Non-reproducible** runs if API responses shift slightly.
+
+**Conclusion:** **Respectable rate limits are mandatory** on any network path, but **insufficient** as the **primary** backtest architecture.
+
+### 4.2 Why not “one year of trades” as the core archive?
+
+**Trades** answer “when did **someone** trade at price X?” They do **not** directly encode **resting** NO ask at every instant or **your** composite predicate (cash, caps, ETA, recovery).  
+
+**Conclusion:** Archive **`prices-history`** (and optionally Tier B L2). Archive **trades** only if you add **explicit** research features (tape validation, volume).
+
+### 4.3 Target architecture (three layers)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 1 — Durable archive (Parquet/SQLite/object store)     │
+│  • universe manifest + per-token price series + resolutions  │
+│  • versioned ingest run id + content hashes                 │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 2 — Local backtest engine                             │
+│  • load series → compute t_first / fills / PnL per cfg       │
+│  • no HTTP in hot loop (config flag ENFORCE_LOCAL_ONLY)      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 3 — Network façade (strict quotas)                    │
+│  • ingest job, “refresh market”, “extend window”             │
+│  • per-user / global token bucket; max concurrent fetches    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 5. Time discretization and “first hit” algorithm
+
+### 5.1 Evaluation grid \(\mathcal{T}\)
+
+Choose **one** policy (product decision):
+
+| Policy | \(\mathcal{T}\) | Pros | Cons |
+| --- | --- | --- | --- |
+| **P1 — Data-native** | Every timestamp \(t_i\) present in cached `prices-history` | Simple, no extra assumptions | Spacing uneven; may miss between samples. |
+| **P2 — Poll-aligned** | Resample or nearest-neighbor to **`price_poll_interval_sec`** from configurable **`t_listing`** | Closer to live bot sampling | Requires defining **`t_listing`**; may undersample if history coarser than poll. |
+| **P3 — Hybrid** | P1 for “first hit” scan; optional P2 for reporting | Balance | More code. |
+
+**Recommendation:** **P1** for v1 implementation speed; **P2** as optional `--align-to-poll` for fidelity experiments.
+
+### 5.2 Predicate \(\text{Predicate}(P, \text{cfg})\) (Tier A sketch)
+
+Align with production logic in `nothing_happens.py`:
+
+1. **Executable NO ask proxy** — e.g. `no_ask = f(p, spread_model)` where `f` might be `p + half_spread` or “treat `p` as mid and add ticks.”
+2. **In range** — `no_ask > 0` and `no_ask <= max_entry_price` (or submitted price rule using `allowed_slippage` and `_submitted_buy_price` equivalent).
+3. **Sizing** — `target_notional` from cash model; require `target_notional / no_ask >= min_shares_effective` if simulating size skip.
+
+Document **`spread_model`** version in run metadata.
+
+### 5.3 Algorithm (single market, single config)
+
+```
+INPUT: sorted points [(t_i, p_i)], cfg, resolution outcome
+OUTPUT: t_first or NONE, simulated entry price, PnL if entered
+
+for each (t_i, p_i) in order:
+    no_ask = spread_model(p_i, cfg)
+    if not predicate(no_ask, cfg, wallet_state):
+        continue
+    t_first = t_i
+    simulate fill at no_ask (or submitted price rule)
+    update wallet_state
+    break outer loops per market entry rule
+
+at resolution: apply binary payoff to NO position
+```
+
+Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or priority order — match live **async gather** behavior or document simplified **serial** mode).
+
+---
+
+## 6. Data model (archive schema)
+
+### 6.1 Universe manifest (`universe.parquet` or `universe.jsonl`)
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `slug` | string | Human id |
+| `no_token_id` | string | CLOB token id for NO outcome |
+| `yes_token_id` | string optional | If needed for cross-checks |
+| `condition_id` | string | On-chain / Gamma id |
+| `t_open` | int64 unix | **Definition documented** — e.g. Gamma `start` or first history point |
+| `t_end` | int64 unix | Resolution / close horizon for ETA filters |
+| `outcome_no_wins` | bool or enum | Resolved: did NO win? (from Gamma / curated) |
+| `ingest_version` | string | Manifest schema version |
+
+### 6.2 Price series (`prices/{token_id}.parquet` or partitioned hive)
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `token_id` | string | NO token |
+| `t` | int64 | Unix seconds (match API) |
+| `p` | float | Price from API |
+| `ingest_run_id` | string | Batch id |
+| `source` | string | `clob_prices_history` |
+
+**Primary key:** `(token_id, t)` deduplicated on ingest.
+
+### 6.3 Ingest metadata table
+
+| Field | Purpose |
 | --- | --- |
-| **Lookahead bias** (using knowledge from future discovery) | Freeze **universe at T0** per run; document that “dynamic Gamma replay” is out of scope for v1. |
-| **Survival bias** (only resolved winners) | Offer explicit **“resolved markets sample”** mode and warn when extrapolating to live. |
-| **API limits / gaps** | Cache downloads; fail runs with clear “missing bar” errors; optional interpolation flag (off by default). |
-| **NO vs YES price symmetry** | Validate `p` in history corresponds to the **token id** passed (NO token); add tests with known markets. |
-| **Overfitting** | Encourage **walk-forward** (train params on window A, validate on B) in docs; not enforced in code v1. |
+| `ingest_run_id`, `started_at`, `completed_at` | Audit |
+| `params` (JSON) | `startTs`, `endTs`, `interval`, `fidelity` used |
+| `markets_requested`, `markets_ok`, `markets_empty` | Health |
+| `error_log_uri` | Debugging |
 
 ---
 
-## 8. Open questions (to decide before implementation)
+## 7. Ingestion job specification
 
-1. **Default universe:** curated file vs “export from one live run’s `_markets_by_slug` snapshot”?
-2. **Bar size:** align with `price_poll_interval_sec` or independent (coarser bars = faster, optimistic fills)?
-3. **Fees:** Polymarket fee schedule by category — include in Tier A as configurable bps?
-4. **Multi-outcome / neg-risk:** explicitly **out of scope** until standalone-only backtest is stable?
+### 7.1 Phases of one ingest run
+
+1. **Load universe** → list of `(no_token_id, start_ts, end_ts)` per market (clamp to market life).
+2. **Deduplicate** tokens if multiple slugs share token (rare; log).
+3. **Fetch loop:**
+   - Respect **global token bucket** (e.g. target ≤800 `/prices-history` per 10s to stay under 1k with jitter).
+   - **Exponential backoff** on 5xx / obvious throttle.
+   - **Resume:** skip tokens already in archive with same `(ingest_params_hash)` unless `--force`.
+4. **Write** Parquet atomically (temp file + rename).
+5. **Record** manifest row counts and hashes.
+
+### 7.2 Query parameters (defaults for year-scale pull)
+
+| Param | Suggested default | Note |
+| --- | --- | --- |
+| `market` | NO `token_id` | Required |
+| `startTs` / `endTs` | Per market or global window | Narrow to reduce payload |
+| `interval` | `max` or `all` then slice locally | Measure response size |
+| `fidelity` | `1` (minute) unless API allows finer | Matches docs |
+
+### 7.3 Idempotency
+
+- **`ingest_params_hash = hash(token_id, startTs, endTs, interval, fidelity)`** stored per series file.
+- Re-run ingest: **no duplicate rows** (merge on `t`).
 
 ---
 
-## 9. References (external)
+## 8. Backtest runner specification
 
-- Polymarket CLOB **price history**: [developers/CLOB/timeseries](https://docs.polymarket.com/developers/CLOB/timeseries)  
-- Polymarket **order book** (live): [trading/orderbook](https://docs.polymarket.com/trading/orderbook)  
-- Example third-party **historical L2**: [PolymarketData order book data](https://www.polymarketdata.co/polymarket-order-book-data) (illustrative; not an endorsement)
+### 8.1 Inputs
+
+- **Archive path** (local or mounted).
+- **`NothingHappensConfig`** (or diff from baseline for A/B).
+- **Tier** (`A` | `B`).
+- **Discretization policy** (P1/P2/P3).
+- **Initial cash** (float).
+- **RiskConfig** subset (exposure caps; drawdown optional off in v1).
+
+### 8.2 Outputs
+
+| Artifact | Format |
+| --- | --- |
+| `summary.json` | Aggregates: markets scanned, entries, win rate, total PnL proxy, max DD |
+| `per_market.parquet` | `slug`, `t_first`, `entered`, `fill_price`, `pnl`, `reason_skip` |
+| `equity_curve.csv` | Optional if multi-step portfolio sim |
+| `run_manifest.json` | Config hash, archive hash, git commit, tier |
+
+### 8.3 CLI (illustrative)
+
+```text
+python -m bot.backtest run \
+  --archive ./var/backtest/v2026-04 \
+  --universe ./universe.parquet \
+  --config-json ./backtest_cfg.json \
+  --tier A \
+  --out ./runs/run_001
+```
+
+### 8.4 Dashboard integration (later)
+
+- **POST /api/backtest** accepts **config diff** + **dataset id** → returns **job id**.
+- Worker reads **only archive**; **never** loops Polymarket per slider tick.
+- **Global limit:** e.g. **N concurrent jobs**, **M runs per user per hour**.
 
 ---
 
-## 10. Summary
+## 9. Rate limiting and quotas (application layer)
 
-A **viable backtest** for this repo should:
+Even with an archive, some routes hit the network. Define **hard caps**:
 
-1. **Decouple** the strategy from wall clock and live HTTP via a **historical exchange** + **simulated time**.  
-2. Start with **Tier A** using official **`prices-history`**, synthetic spread, and a **frozen universe** to avoid discovery lookahead.  
-3. Add **Tier B** only if execution realism justifies **external L2** cost and integration.  
-4. Ship as **CLI + cached data** first; dashboard integration later.
+| Route | Suggested cap | Purpose |
+| --- | --- | --- |
+| `ingest.start` | 1 global + queue | Avoid parallel megajobs |
+| `ingest.token` | ≤800 req/10s internal throttle | Stay under Polymarket 1k/10s |
+| `cache.refresh_market` | e.g. 10/min per user | Abuse prevention |
+| `backtest.run` (network fallback) | **0** in prod v1 | Force local-only |
 
-This matches the existing architecture (`NothingHappensConfig`, exchange interface, risk module) while being honest about **Polymarket’s public historical surface** (strong on prices, weak on historical L2).
+Expose **`429`** with **`Retry-After`** from app when user triggers too many refresh operations.
+
+---
+
+## 10. Third-party and indexers (short)
+
+| Class | Examples | Historical NO book for backtest? |
+| --- | --- | --- |
+| **Vendor L2** | [PolymarketData](https://www.polymarketdata.co/polymarket-order-book-data) (1m) | **Tier B** — minute snapshots, not sub-minute. |
+| **On-chain indexers** | Goldsky, The Graph, Envio, Dune | **Trades / settlement**, not off-chain CLOB resting book. |
+| **Forward capture** | CLOB WebSocket `book` / `best_bid_ask` | **Build your own** archive from `t_open` if product needs sub-minute **going forward**. |
+
+---
+
+## 11. Phased delivery (detailed)
+
+### Phase 0 — Spike (time-boxed)
+
+| Task | Output |
+| --- | --- |
+| Fetch `prices-history` for 5 known NO tokens | Script in `scripts/` |
+| Document `{t,p}` vs live `/book` best ask | Markdown appendix |
+| Implement `spread_model_v0` | Constant half-tick |
+| Compute `t_first` on paper for 1 config | Notebook or unit test |
+
+**Exit:** Go/no-go on Tier A credibility.
+
+### Phase 1 — Archive + local scan
+
+| Task | Output |
+| --- | --- |
+| Parquet writers + manifest | `bot/backtest/` module |
+| Ingest CLI with throttle | `scripts/backtest_ingest.py` |
+| Pure function `first_executable_moment(series, cfg)` | Tested |
+| Golden-file test on 3 markets | CI |
+
+**Exit:** One-command ingest + one-command report offline.
+
+### Phase 2 — Portfolio + parity knobs
+
+| Task | Output |
+| --- | --- |
+| Multi-market serial or documented parallel policy | Config flag |
+| Map ETA / max position caps | Match `NothingHappensConfig` fields |
+| Resolution PnL | Gamma outcome join |
+
+**Exit:** Summary metrics within sanity bounds on fixture universe.
+
+### Phase 3 — Dashboard + quotas
+
+| Task | Output |
+| --- | --- |
+| Job queue + results UI | Admin or dedicated page |
+| User / global quotas | Middleware |
+| Dataset versioning in UI | Dropdown |
+
+**Exit:** Non-engineer can run A/B on cached year.
+
+### Phase 4 — Tier B adapter (optional)
+
+| Task | Output |
+| --- | --- |
+| PolymarketData (or chosen vendor) client | Pluggable `HistoricalExchange` |
+| Comparison report Tier A vs B | `compare.html` |
+
+---
+
+## 12. Risks (expanded)
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| Empty `prices-history` | Missing markets | Manifest `markets_empty`; exclude from metrics; optional imputation **off** |
+| Lookahead in universe | Inflated edge | Frozen manifest at research date; document |
+| `p` ≠ tradable NO ask | Wrong `t_first` | Tier B or calibration sweep; disclose Tier A assumption |
+| Ingest job failure mid-run | Partial archive | Resume tokens; manifest `status=partial` |
+| User expects live parity | Trust loss | Run banner: tier + spread model version |
+
+---
+
+## 13. Open decisions (checklist)
+
+- [ ] **`t_open` definition** — Gamma field vs first price point.
+- [ ] **Portfolio cross-market ordering** — serial vs parallel vs simplified.
+- [ ] **Fees** — include category fee table or ignore in v1.
+- [ ] **neg-risk / multi-outcome** — explicitly excluded or flagged.
+
+---
+
+## 14. References
+
+- [CLOB `prices-history` / timeseries](https://docs.polymarket.com/developers/CLOB/timeseries)  
+- [Polymarket rate limits](https://docs.polymarket.com/api-reference/rate-limits)  
+- [CLOB order book (live)](https://docs.polymarket.com/trading/orderbook)  
+- Example vendor L2: [PolymarketData](https://www.polymarketdata.co/polymarket-order-book-data)  
+
+---
+
+## 15. Document history
+
+| Date | Change |
+| --- | --- |
+| Initial | High-level proposal |
+| 2026-04-13 | Expanded: first-executable definition, archive-first vs dial API, rate limits, schema, ingest/backtest specs, quotas, phased tasks |
