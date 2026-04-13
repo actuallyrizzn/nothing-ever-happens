@@ -118,6 +118,15 @@ python -m pytest -q
 | `scripts/wallet_history.py` | Pull positions, trades, and balances for the configured wallet |
 | `scripts/parse_logs.py` | Convert JSON logs into readable terminal or HTML; `--db` reads `trade_events` from SQLite |
 
+## License
+
+This repository uses two copyright licenses:
+
+- **Software (code)** — Python modules under `bot/`, `scripts/`, and `tests/`, and any other material clearly offered as program source: **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). Full text: [`LICENSE`](LICENSE).
+- **Everything else** — documentation (including this `README.md`, `docs/`, and user guides), images, static assets, JSON/YAML examples such as `config.example.json` and `.env.example`, and similar non-program creative material: **Creative Commons Attribution-ShareAlike 4.0 International** (`CC-BY-SA-4.0`). Full legal text: [`LICENSE-CC-BY-SA-4.0.txt`](LICENSE-CC-BY-SA-4.0.txt).
+
+Dependencies installed from PyPI (see `requirements.txt`) remain under their upstream licenses. The previous repository-wide **CC0 1.0** dedication no longer applies.
+
 ## Repository Hygiene
 
 Local config, ledgers, exports, reports, and deployment artifacts are ignored by default.
