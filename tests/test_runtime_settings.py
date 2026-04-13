@@ -102,12 +102,12 @@ def test_save_preserves_secret_when_blank(tmp_path: Path, monkeypatch) -> None:
     assert stored["PRIVATE_KEY"] == "0xdeadbeef"
 
 
-def test_all_setting_fields_have_value_hint() -> None:
+def test_all_setting_fields_have_short_help() -> None:
     for f in FIELDS:
-        assert f.value_hint and str(f.value_hint).strip(), f.key
+        assert f.help and str(f.help).strip(), f.key
 
 
-def test_render_settings_form_uses_tabs_and_value_hints() -> None:
+def test_render_settings_form_uses_tabs_and_field_help() -> None:
     ctx = build_form_values(None)
     html = render_settings_form_fields(ctx["values"], ctx["fingerprints"])
     n_sections = len({f.section for f in FIELDS})
@@ -115,4 +115,4 @@ def test_render_settings_form_uses_tabs_and_value_hints() -> None:
     assert 'role="tablist"' in html
     assert html.count('role="tab"') == n_sections
     assert html.count('role="tabpanel"') == n_sections
-    assert html.count('class="field-value-hint"') == len(FIELDS)
+    assert html.count('class="field-help"') == len(FIELDS)
