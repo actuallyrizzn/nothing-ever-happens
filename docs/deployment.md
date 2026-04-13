@@ -18,6 +18,24 @@ Typical VPS layout:
 - **nginx** (or similar) terminates TLS and proxies to the loopback port.  
 - Set **`X-Forwarded-Proto: https`** so **Secure** cookies work.
 
+The main dashboard uses a **WebSocket** at **`/ws`**. If nginx does not forward upgrade headers, the UI will show **socket: disconnected** and no live tiles or trades. Add a dedicated location (or equivalent `map` + headers) so **`Upgrade`** and **`Connection: upgrade`** reach aiohttp, and use a long **`proxy_read_timeout`** for `/ws` (e.g. 86400s). Example:
+
+```nginx
+location /ws {
+    proxy_pass http://127.0.0.1:8891;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400s;
+    proxy_send_timeout 86400s;
+    proxy_buffering off;
+}
+```
+
 ## Database files {: #database-files }
 
 - **Bot DB** — `trade_events`, `runtime_settings`, recovery tables, etc.  
