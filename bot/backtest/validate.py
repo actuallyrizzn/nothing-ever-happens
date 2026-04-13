@@ -16,18 +16,17 @@ class ValidateReport:
 
 
 def _looks_like_unix_seconds(t: int) -> bool:
-    # Reject millisecond timestamps (13 digits) and nonsense.
     if t <= 0:
         return False
-    if t > 10_000_000_000:  # > year ~2286 in seconds — likely ms
+    if t > 10_000_000_000:
         return False
-    if t < 1_000_000_000:  # before ~2001
+    if t < 1_000_000_000:
         return False
     return True
 
 
 def validate_archive(archive: Path) -> ValidateReport:
-    """Validate ``universe.parquet`` vs ``prices/*.parquet`` (monotonic t, keys)."""
+    """Validate ``universe.parquet`` vs ``prices/*.parquet`` (§6.4)."""
     archive = Path(archive).resolve()
     report = ValidateReport(ok=True)
     u_path = archive / "universe.parquet"
@@ -44,7 +43,11 @@ def validate_archive(archive: Path) -> ValidateReport:
         return report
 
     tokens = ut["no_token_id"].to_pylist()
-    for token_id in tokens:
+    starts = ut["ingest_start_ts"].to_pylist() if "ingest_start_ts" in cols else None
+    ends = ut["ingest_end_ts"].to_pylist() if "ingest_end_ts" in cols else None
+    coverages = ut["coverage_class"].to_pylist() if "coverage_class" in cols else None
+
+    for idx, token_id in enumerate(tokens):
         token_id = str(token_id)
         report.tokens_checked += 1
         p_path = archive / "prices" / f"{token_id}.parquet"
@@ -67,15 +70,38 @@ def validate_archive(archive: Path) -> ValidateReport:
 
         ts = [int(x) for x in table["t"].to_pylist()]
         for i in range(1, len(ts)):
-            if ts[i] <= ts[i - 1]:
+            if ts[i] < ts[i - 1]:
                 report.ok = False
                 report.errors.append(f"non_monotonic_t:{token_id}")
+                break
+            if ts[i] == ts[i - 1]:
+                report.ok = False
+                report.errors.append(f"duplicate_t:{token_id}:{ts[i]}")
                 break
         for t in ts:
             if not _looks_like_unix_seconds(t):
                 report.ok = False
                 report.errors.append(f"suspicious_t_unit:{token_id}:{t}")
                 break
+
+        if coverages is not None and idx < len(coverages):
+            cov = str(coverages[idx] or "")
+            if cov not in {"empty_history"} and n == 0:
+                report.warnings.append(f"coverage_mismatch_empty_file:{token_id}")
+
+        if starts is not None and ends is not None and ts and idx < len(starts) and idx < len(ends):
+            st = starts[idx]
+            et = ends[idx]
+            if st is not None and et is not None:
+                try:
+                    st_i, et_i = int(st), int(et)
+                    t_min, t_max = ts[0], ts[-1]
+                    if t_min > st_i + 60 or t_max < et_i - 60:
+                        report.warnings.append(
+                            f"partial_range_vs_ingest_window:{token_id}:t[{t_min},{t_max}] wanted[{st_i},{et_i}]"
+                        )
+                except (TypeError, ValueError):
+                    pass
 
     return report
 
@@ -89,3 +115,13 @@ def write_validate_report(archive: Path, report: ValidateReport) -> None:
         "tokens_checked": report.tokens_checked,
     }
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def load_validate_report(archive: Path) -> dict[str, Any] | None:
+    p = Path(archive) / "validate_report.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None

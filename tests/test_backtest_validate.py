@@ -46,6 +46,44 @@ def test_validate_detects_non_monotonic(tmp_path: Path) -> None:
     assert any("non_monotonic" in e for e in report.errors)
 
 
+def test_validate_detects_duplicate_timestamp(tmp_path: Path) -> None:
+    archive = tmp_path / "arc"
+    (archive / "prices").mkdir(parents=True)
+    tok = "dup"
+    table = pa.table(
+        {
+            "token_id": [tok, tok],
+            "t": [1_700_000_000, 1_700_000_000],
+            "p": [0.5, 0.4],
+            "ingest_run_id": ["x", "x"],
+            "source": ["clob_prices_history"] * 2,
+        }
+    )
+    pq.write_table(table, archive / "prices" / f"{tok}.parquet")
+    uni = pa.table(
+        {
+            "slug": ["m"],
+            "no_token_id": [tok],
+            "yes_token_id": [None],
+            "condition_id": [""],
+            "t_open": [1_700_000_000],
+            "t_open_source": ["first_history_bar"],
+            "t_end": [0],
+            "outcome_no_wins": [None],
+            "resolution_status": ["unknown"],
+            "gamma_snapshot_utc": [""],
+            "ingest_version": ["1"],
+            "coverage_class": ["ok"],
+            "bar_count": [2],
+            "min_order_size": [0.0],
+        }
+    )
+    pq.write_table(uni, archive / "universe.parquet")
+    report = validate_archive(archive)
+    assert report.ok is False
+    assert any("duplicate_t" in e for e in report.errors)
+
+
 def test_validate_ok_minimal(tmp_path: Path) -> None:
     archive = tmp_path / "arc"
     (archive / "prices").mkdir(parents=True)

@@ -387,12 +387,13 @@ Multi-market: apply **`portfolio_sequencing`** (§5.6).
 1. **`--min-markets-with-data`** and **`--min-bars-per-market`** — abort if unmet.
 2. **`summary.json`** always includes **`markets_total`**, **`markets_with_entry`**, **`markets_skipped_reason_counts`**.
 
-### 8.4 CLI (implemented — v1)
+### 8.4 CLI (implemented)
 
-**Universe file for ingest:** JSONL, one object per line. Required: **`no_token_id`** (NO CLOB token id). Optional: `slug`, `start_ts`, `end_ts`, `t_open`, `t_open_source`, `t_end`, `outcome_no_wins`, `resolution_status`, `condition_id`, `min_order_size`, `gamma_snapshot_utc`.
+**Universe JSONL (ingest input):** one object per line. Required: **`no_token_id`**. Optional: `slug`, `start_ts`, `end_ts`, `t_open`, `t_open_source`, `t_end`, `outcome_no_wins`, `resolution_status`, `condition_id`, `min_order_size`, `min_bars_threshold`, `gamma_snapshot_utc`, **`universe_rule`**.
 
 ```text
 python -m bot.backtest ingest --archive ./var/backtest/demo --universe ./universe.jsonl
+python -m bot.backtest ingest ... --max-gb 4.0
 ```
 
 ```text
@@ -400,14 +401,28 @@ python -m bot.backtest validate --archive ./var/backtest/demo
 ```
 
 ```text
+python -m bot.backtest calibrate --tokens TOKEN1,TOKEN2,TOKEN3 --out-json ./tier_a_calibration.json
+```
+
+```text
 python -m bot.backtest run \
   --archive ./var/backtest/demo \
   --config-json ./backtest_cfg.json \
   --initial-cash 10000 \
-  --out ./runs/run_001
+  --out ./runs/run_001 \
+  --discretization P1 \
+  --portfolio-sequencing single_market_only \
+  --drawdown-mode off \
+  --require-validated-manifest \
+  --min-markets-with-data 10 \
+  --min-bars-per-market 50 \
+  --t-open-expected first_history_bar \
+  --calibration-run-id my_cal_run_001
 ```
 
-(`run` reads **`universe.parquet`** inside the archive produced by **`ingest`**; `--tier` / `--portfolio-sequencing` flags are expressed in **`run_manifest.json`** for this v1.)
+- **`run`** reads **`universe.parquet`** from the archive. Writes **`per_market.parquet`**, **`per_market.jsonl`**, **`summary.json`**, **`run_manifest.json`**.
+- **`--tier B`** is rejected until the Tier B adapter exists (phase 4).
+- Golden / acceptance table: **`tests/fixtures/backtest/README.md`**.
 
 ### 8.5 Dashboard integration (later)
 
@@ -525,7 +540,7 @@ Expose **`429`** with **`Retry-After`** from app when internal quota exceeded.
 
 ## 13. Open decisions (residual checklist)
 
-- [ ] **Default `t_open_source`** — pick `gamma_start` vs `first_history_bar` for first shipped manifest (then freeze).
+- [x] **Default `t_open_source`** — shipped default: **`first_history_bar`** when ingest omits `t_open` (see ingest module); override per row as needed.
 - [ ] **Fees** — include category fee table in PnL or `live_path_excluded: ["fees"]`.
 - [ ] **neg-risk / multi-outcome** — explicitly excluded or flagged in manifest.
 
@@ -548,3 +563,4 @@ Expose **`429`** with **`Retry-After`** from app when internal quota exceeded.
 | 2026-04-13 | Expanded: first-executable definition, archive-first vs dial API, rate limits, schema, ingest/backtest specs, quotas, phased tasks |
 | 2026-04-13 | Risk mitigations: calibration, coverage gates, `t_open` freeze, sequencing modes, shared fill, recovery/scheduling/DD flags, validate command, survivorship, parity matrix, removed non-engineering/legal framing |
 | 2026-04-13 | **Implementation v1:** `python -m bot.backtest` (`ingest`, `validate`, `run`), `bot/order_math.py`, `pytest.ini` `pythonpath` |
+| 2026-04-13 | Plan alignment: `calibrate`, P1/P2 discretization, portfolio sequencing, `step_mtm` DD, void/disputed PnL, quality gates, `per_market.parquet`, ingest join checks + metrics + `max_gb`, validate duplicate `t` + window warnings, golden tests |

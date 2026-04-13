@@ -22,6 +22,8 @@ class IngestStats:
     markets_empty: int = 0
     markets_partial: int = 0
     errors: list[str] = field(default_factory=list)
+    fetch_latency_sec: list[float] = field(default_factory=list)
+    bytes_written: int = 0
 
 
 class SlidingWindowLimiter:
@@ -117,6 +119,14 @@ def _read_existing_points(path: Path, token_id: str) -> list[tuple[int, float]]:
     return [(int(t), float(p)) for t, p in zip(ts, ps)]
 
 
+def _p95(values: list[float]) -> float | None:
+    if not values:
+        return None
+    s = sorted(values)
+    i = min(len(s) - 1, int(0.95 * (len(s) - 1)))
+    return float(s[i])
+
+
 def run_ingest(
     *,
     archive: Path,
@@ -128,6 +138,7 @@ def run_ingest(
     force: bool = False,
     resume: bool = True,
     max_retries: int = 4,
+    max_gb: float | None = None,
 ) -> IngestStats:
     """Ingest ``prices-history`` for each row in a JSONL universe file."""
     archive = Path(archive).resolve()
@@ -155,6 +166,19 @@ def run_ingest(
         rows = list(iter_jsonl(universe_path))
         stats.markets_requested = len(rows)
 
+        slug_first_cid: dict[str, str] = {}
+        slug_cid_conflict: set[str] = set()
+        for row in rows:
+            slug = str(row.get("slug") or "").strip()
+            cid = str(row.get("condition_id") or "").strip()
+            if not slug or not cid:
+                continue
+            if slug not in slug_first_cid:
+                slug_first_cid[slug] = cid
+            elif slug_first_cid[slug] != cid:
+                slug_cid_conflict.add(slug)
+                stats.errors.append(f"join_mismatch_slug:{slug}")
+
         for row in rows:
             token_id = str(row.get("no_token_id") or row.get("token_id") or "").strip()
             if not token_id:
@@ -166,6 +190,9 @@ def run_ingest(
             end_ts = row.get("end_ts")
             st = int(start_ts) if start_ts is not None else None
             et = int(end_ts) if end_ts is not None else None
+
+            if slug and slug in slug_cid_conflict:
+                continue
 
             param_hash = token_ingest_params_hash(
                 token_id=token_id,
@@ -190,6 +217,7 @@ def run_ingest(
             for attempt in range(max_retries):
                 try:
                     limiter.acquire()
+                    t_req = time.monotonic()
                     history = fetch_prices_history(
                         host=host,
                         token_id=token_id,
@@ -198,6 +226,7 @@ def run_ingest(
                         fidelity=fidelity,
                         interval=interval,
                     )
+                    stats.fetch_latency_sec.append(time.monotonic() - t_req)
                     last_err = None
                     break
                 except (RuntimeError, ValueError, OSError) as exc:
@@ -216,6 +245,14 @@ def run_ingest(
                 points=merged,
                 ingest_run_id=ingest_run_id,
             )
+            try:
+                sz = out_path.stat().st_size
+                stats.bytes_written += sz
+                if max_gb is not None and stats.bytes_written > max_gb * (1024**3):
+                    stats.errors.append("max_gb_exceeded_abort")
+                    break
+            except OSError:
+                pass
 
             bar_count = len(merged)
             if bar_count == 0:
@@ -244,6 +281,13 @@ def run_ingest(
                 outcome_b = str(outcome).lower() in {"1", "true", "yes"}
 
             res_status = str(row.get("resolution_status") or "unknown")
+            min_bars_th = row.get("min_bars_threshold")
+            if bar_count > 0 and min_bars_th is not None:
+                try:
+                    if bar_count < int(min_bars_th):
+                        coverage = "below_min_bars"
+                except (TypeError, ValueError):
+                    pass
 
             by_token[token_id] = {
                 "slug": slug,
@@ -260,6 +304,10 @@ def run_ingest(
                 "coverage_class": coverage,
                 "bar_count": bar_count,
                 "min_order_size": float(row.get("min_order_size") or 0),
+                "universe_rule": str(row.get("universe_rule") or "unspecified"),
+                "ingest_start_ts": st,
+                "ingest_end_ts": et,
+                "min_bars_threshold": int(min_bars_th) if min_bars_th is not None else None,
             }
 
             completed[token_id] = param_hash
@@ -277,7 +325,11 @@ def run_ingest(
         for row in rows:
             tid = str(row.get("no_token_id") or row.get("token_id") or "").strip()
             if tid and tid in by_token:
-                ordered.append(by_token[tid])
+                merged_row = dict(by_token[tid])
+                ur = row.get("universe_rule")
+                if ur is not None:
+                    merged_row["universe_rule"] = str(ur)
+                ordered.append(merged_row)
 
         if ordered:
             table = pa.Table.from_pylist(ordered)
@@ -297,6 +349,10 @@ def run_ingest(
             "fidelity": fidelity,
             "interval": interval,
             "status": "complete" if not stats.errors else "partial",
+            "fetch_latency_p95_sec": _p95(stats.fetch_latency_sec),
+            "fetch_requests": len(stats.fetch_latency_sec),
+            "bytes_written": stats.bytes_written,
+            "history_p_semantics_note": "https://docs.polymarket.com/developers/CLOB/timeseries",
         }
         (archive / "ingest_metadata.json").write_text(
             json.dumps(meta, indent=2), encoding="utf-8"
@@ -307,4 +363,7 @@ def run_ingest(
 
 def asdict_stats(stats: IngestStats) -> dict[str, Any]:
     d = asdict(stats)
+    lat = list(d.pop("fetch_latency_sec", []) or [])
+    d["fetch_latency_sample_count"] = len(lat)
+    d["fetch_latency_p95_sec"] = _p95(lat)
     return d
