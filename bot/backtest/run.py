@@ -17,9 +17,12 @@ from bot.backtest.discretize import discretize_for_run
 from bot.backtest.first_hit import FirstHitResult, first_executable_moment
 from bot.backtest.hashing import canonical_json_hash
 from bot.backtest.predicate import WalletState, entry_predicate
+from bot.backtest.run_context import PriceRunContext, build_price_context, fee_usd
 from bot.backtest.spread_model import SpreadModelV0, no_ask_from_history_p
+from bot.backtest.strategy_loop_sim import first_executable_moment_strategy_loop
 from bot.backtest.validate import load_validate_report
 from bot.config import NothingHappensConfig
+from bot.risk_controls import RiskConfig, RiskController
 
 
 def _git_sha() -> str | None:
@@ -37,16 +40,6 @@ def _git_sha() -> str | None:
     except OSError:
         pass
     return None
-
-
-def _load_price_points(archive: Path, token_id: str) -> list[tuple[int, float]]:
-    path = archive / "prices" / f"{token_id}.parquet"
-    if not path.exists():
-        return []
-    table = pq.read_table(path, columns=["t", "p"])
-    ts = table["t"].to_pylist()
-    ps = table["p"].to_pylist()
-    return [(int(t), float(p)) for t, p in zip(ts, ps)]
 
 
 def _nh_config_fingerprint(cfg: NothingHappensConfig) -> str:
@@ -81,6 +74,9 @@ class BacktestRunOptions:
     min_bars_per_market: int | None = None
     require_validated_manifest: bool = False
     calibration_run_id: str = "uncalibrated"
+    l2_archive: Path | None = None
+    fee_bps: float = 0.0
+    simulate_risk_caps: bool = False
 
 
 def _resolution_blocks_pnl(status: str | None) -> bool:
@@ -93,7 +89,7 @@ def _resolution_blocks_pnl(status: str | None) -> bool:
 def _apply_gates(
     *,
     rows: list[dict[str, Any]],
-    archive: Path,
+    ctx: PriceRunContext,
     min_markets_with_data: int | None,
     min_bars_per_market: int | None,
 ) -> None:
@@ -104,7 +100,7 @@ def _apply_gates(
         if cov == "empty_history":
             continue
         tid = str(row.get("no_token_id") or "")
-        pts = _load_price_points(archive, tid)
+        pts = ctx.load_raw(tid)
         if len(pts) >= min_bars:
             ok_count += 1
     if min_markets_with_data is not None and ok_count < int(min_markets_with_data):
@@ -121,6 +117,7 @@ def _max_dd_single_market(
     shares: float,
     cash_after_entry: float,
     spread: SpreadModelV0,
+    l2_direct: bool,
 ) -> float:
     """Largest peak-to-trough drop in proxy equity (§5.8 step_mtm)."""
     max_dd = 0.0
@@ -129,7 +126,7 @@ def _max_dd_single_market(
     for t_i, p_i in points:
         if t_i < t_first:
             continue
-        mark = no_ask_from_history_p(p_i, spread)
+        mark = float(p_i) if l2_direct else no_ask_from_history_p(p_i, spread)
         equity = cash_after_entry + shares * mark
         if peak is None:
             peak = trough = equity
@@ -143,12 +140,46 @@ def _max_dd_single_market(
     return max_dd
 
 
+def _scan_first_hit(
+    points: list[tuple[int, float]],
+    *,
+    cfg: NothingHappensConfig,
+    wallet: WalletState,
+    spread: SpreadModelV0,
+    mos: float,
+    scheduling_mode: str,
+    l2_direct: bool,
+) -> FirstHitResult:
+    sm = scheduling_mode.strip().lower()
+    if sm == "strategy_loop":
+        return first_executable_moment_strategy_loop(
+            points,
+            cfg=cfg,
+            wallet=wallet,
+            spread=spread,
+            market_min_order_size=mos,
+            book_min_order_size=mos,
+            assume_infinite_book_depth=True,
+            safe_notional_usd=None,
+            use_l2_best_ask_direct=l2_direct,
+        )
+    return first_executable_moment(
+        points,
+        cfg=cfg,
+        wallet=wallet,
+        spread=spread,
+        market_min_order_size=mos,
+        book_min_order_size=mos,
+        assume_infinite_book_depth=True,
+        safe_notional_usd=None,
+        use_l2_best_ask_direct=l2_direct,
+    )
+
+
 def _run_single_market_only(
     *,
     rows: list[dict[str, Any]],
-    archive: Path,
-    cfg: NothingHappensConfig,
-    spread: SpreadModelV0,
+    ctx: PriceRunContext,
     cash0: float,
     options: BacktestRunOptions,
 ) -> tuple[list[dict[str, Any]], int, dict[str, int], float | None]:
@@ -184,7 +215,7 @@ def _run_single_market_only(
             )
             continue
 
-        raw_points = _load_price_points(archive, token_id)
+        raw_points = ctx.load_raw(token_id)
         if not raw_points:
             skipped_reasons["missing_prices_file"] = skipped_reasons.get("missing_prices_file", 0) + 1
             per_market.append(
@@ -199,7 +230,7 @@ def _run_single_market_only(
                 raw_points,
                 options.discretization,
                 t_open=t_open_i,
-                cfg=cfg,
+                cfg=ctx.cfg,
             )
         except ValueError as exc:
             skipped_reasons["discretize_error"] = skipped_reasons.get("discretize_error", 0) + 1
@@ -210,16 +241,22 @@ def _run_single_market_only(
 
         mos = float(row.get("min_order_size") or 0.0)
         wallet = WalletState(cash_usd=cash0)
-        hit = first_executable_moment(
+        hit = _scan_first_hit(
             points,
-            cfg=cfg,
+            cfg=ctx.cfg,
             wallet=wallet,
-            spread=spread,
-            market_min_order_size=mos,
-            book_min_order_size=mos,
-            assume_infinite_book_depth=True,
-            safe_notional_usd=None,
+            spread=ctx.spread,
+            mos=mos,
+            scheduling_mode=options.scheduling_mode,
+            l2_direct=ctx.l2_direct,
         )
+        if hit.t_first is not None and hit.target_notional is not None and ctx.risk is not None:
+            now_us = int(hit.t_first) * 1_000_000
+            ok_r, rr = ctx.risk.can_open_trade(now_us, slug, float(hit.target_notional))
+            if not ok_r:
+                hit = FirstHitResult(None, None, None, None, f"risk_block:{rr}")
+            else:
+                ctx.risk.on_open_trade(slug, float(hit.target_notional), now_us)
 
         res_status = str(row.get("resolution_status") or "unknown")
         block_pnl = _resolution_blocks_pnl(res_status)
@@ -240,7 +277,8 @@ def _run_single_market_only(
             else:
                 won = bool(outcome)
                 payoff_per_share = 1.0 if won else 0.0
-                pnl_usd = shares * payoff_per_share - tgt
+                fe = fee_usd(tgt, ctx.fee_bps)
+                pnl_usd = shares * payoff_per_share - tgt - fe
 
             if options.drawdown_mode == "step_mtm" and hit.t_first is not None:
                 dd = _max_dd_single_market(
@@ -248,9 +286,18 @@ def _run_single_market_only(
                     t_first=int(hit.t_first),
                     shares=shares,
                     cash_after_entry=cash_after,
-                    spread=spread,
+                    spread=ctx.spread,
+                    l2_direct=ctx.l2_direct,
                 )
                 max_dd_global = dd if max_dd_global is None else max(max_dd_global, dd)
+            if ctx.risk is not None and hit.target_notional is not None:
+                end_us = int(raw_points[-1][0]) * 1_000_000 if raw_points else int(hit.t_first) * 1_000_000
+                ctx.risk.on_close_trade(
+                    slug,
+                    float(hit.target_notional),
+                    float(pnl_usd or 0.0),
+                    end_us,
+                )
         elif not entered and hit.reason_skip:
             skipped_reasons[hit.reason_skip] = skipped_reasons.get(hit.reason_skip, 0) + 1
 
@@ -304,8 +351,7 @@ def _pm_row(
 
 def _events_from_rows(
     rows: list[dict[str, Any]],
-    archive: Path,
-    cfg: NothingHappensConfig,
+    ctx: PriceRunContext,
     discretization: str,
 ) -> list[tuple[int, str, dict[str, Any], float]]:
     """Sorted (t, slug, row, p) for global sequencing."""
@@ -316,13 +362,13 @@ def _events_from_rows(
         cov = str(row.get("coverage_class") or "")
         if cov == "empty_history":
             continue
-        raw = _load_price_points(archive, token_id)
+        raw = ctx.load_raw(token_id)
         if not raw:
             continue
         t_open = row.get("t_open")
         t_open_i = int(t_open) if t_open is not None else None
         try:
-            pts = discretize_for_run(raw, discretization, t_open=t_open_i, cfg=cfg)
+            pts = discretize_for_run(raw, discretization, t_open=t_open_i, cfg=ctx.cfg)
         except ValueError:
             continue
         for t_i, p_i in pts:
@@ -334,9 +380,7 @@ def _events_from_rows(
 def _run_portfolio_shared_wallet(
     *,
     rows: list[dict[str, Any]],
-    archive: Path,
-    cfg: NothingHappensConfig,
-    spread: SpreadModelV0,
+    ctx: PriceRunContext,
     cash0: float,
     options: BacktestRunOptions,
     time_ordered: bool,
@@ -353,7 +397,7 @@ def _run_portfolio_shared_wallet(
         cov = str(r.get("coverage_class") or "unknown")
         if cov == "empty_history":
             per_map[slug] = _pm_row(slug, tid, cov, None, False, None, None, "empty_history", None)
-        elif not tid or not _load_price_points(archive, tid):
+        elif not tid or not ctx.load_raw(tid):
             per_map[slug] = _pm_row(slug, tid, cov, None, False, None, None, "missing_prices_file", None)
         else:
             per_map[slug] = _pm_row(slug, tid, cov, None, False, None, None, "no_entry", None)
@@ -371,32 +415,38 @@ def _run_portfolio_shared_wallet(
             cov = str(row.get("coverage_class") or "")
             if cov == "empty_history" or not tid:
                 continue
-            raw = _load_price_points(archive, tid)
+            raw = ctx.load_raw(tid)
             if not raw:
                 continue
             t_open = row.get("t_open")
             t_open_i = int(t_open) if t_open is not None else None
             try:
-                points = discretize_for_run(raw, options.discretization, t_open=t_open_i, cfg=cfg)
+                points = discretize_for_run(raw, options.discretization, t_open=t_open_i, cfg=ctx.cfg)
             except ValueError:
                 continue
             mos = float(row.get("min_order_size") or 0.0)
-            hit = first_executable_moment(
+            hit = _scan_first_hit(
                 points,
-                cfg=cfg,
+                cfg=ctx.cfg,
                 wallet=WalletState(cash_usd=cash),
-                spread=spread,
-                market_min_order_size=mos,
-                book_min_order_size=mos,
-                assume_infinite_book_depth=True,
-                safe_notional_usd=None,
+                spread=ctx.spread,
+                mos=mos,
+                scheduling_mode=options.scheduling_mode,
+                l2_direct=ctx.l2_direct,
             )
+            if hit.t_first is not None and hit.target_notional is not None and ctx.risk is not None:
+                now_us = int(hit.t_first) * 1_000_000
+                ok_r, rr = ctx.risk.can_open_trade(now_us, slug, float(hit.target_notional))
+                if not ok_r:
+                    hit = FirstHitResult(None, None, None, None, f"risk_block:{rr}")
+                else:
+                    ctx.risk.on_open_trade(slug, float(hit.target_notional), now_us)
             if hit.t_first is not None and hit.target_notional is not None:
                 entered_slugs.add(slug)
                 hits[slug] = hit
                 cash -= float(hit.target_notional)
     else:
-        events = _events_from_rows(rows, archive, cfg, options.discretization)
+        events = _events_from_rows(rows, ctx, options.discretization)
         for t_i, slug, row, p_i in events:
             tid = str(row.get("no_token_id") or "")
             if slug in entered_slugs or not tid:
@@ -404,11 +454,11 @@ def _run_portfolio_shared_wallet(
             cov = str(row.get("coverage_class") or "")
             if cov == "empty_history":
                 continue
-            no_ask = no_ask_from_history_p(p_i, spread)
+            no_ask = float(p_i) if ctx.l2_direct else no_ask_from_history_p(p_i, ctx.spread)
             mos = float(row.get("min_order_size") or 0.0)
             check = entry_predicate(
                 no_ask=no_ask,
-                cfg=cfg,
+                cfg=ctx.cfg,
                 wallet=WalletState(cash_usd=cash),
                 market_min_order_size=mos,
                 book_min_order_size=mos,
@@ -416,6 +466,12 @@ def _run_portfolio_shared_wallet(
                 safe_notional_usd=None,
             )
             if check.ok and check.target_notional is not None:
+                if ctx.risk is not None:
+                    now_us = int(t_i) * 1_000_000
+                    ok_r, rr = ctx.risk.can_open_trade(now_us, slug, float(check.target_notional))
+                    if not ok_r:
+                        continue
+                    ctx.risk.on_open_trade(slug, float(check.target_notional), now_us)
                 entered_slugs.add(slug)
                 hits[slug] = FirstHitResult(
                     t_first=int(t_i),
@@ -450,7 +506,8 @@ def _run_portfolio_shared_wallet(
         pnl_usd: float | None = None
         if outcome is not None and not block_pnl:
             won = bool(outcome)
-            pnl_usd = shares * (1.0 if won else 0.0) - tgt
+            fe = fee_usd(tgt, ctx.fee_bps)
+            pnl_usd = shares * (1.0 if won else 0.0) - tgt - fe
         elif block_pnl:
             pnl_usd = None
         if pnl_usd is None:
@@ -459,16 +516,21 @@ def _run_portfolio_shared_wallet(
             skip_reason = None
         dd: float | None = None
         if options.drawdown_mode == "step_mtm":
-            raw = _load_price_points(archive, tid)
+            raw = ctx.load_raw(tid)
             if raw and hit.t_first is not None:
                 dd = _max_dd_single_market(
                     raw,
                     t_first=int(hit.t_first),
                     shares=shares,
                     cash_after_entry=cash_after_entry,
-                    spread=spread,
+                    spread=ctx.spread,
+                    l2_direct=ctx.l2_direct,
                 )
                 max_dd_global = dd if max_dd_global is None else max(max_dd_global, dd)
+        if ctx.risk is not None and hit.target_notional is not None:
+            raw = ctx.load_raw(tid)
+            end_us = int(raw[-1][0]) * 1_000_000 if raw else int(hit.t_first) * 1_000_000
+            ctx.risk.on_close_trade(slug, float(hit.target_notional), float(pnl_usd or 0.0), end_us)
         per_map[slug] = _pm_row(
             slug,
             tid,
@@ -491,11 +553,6 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
     out_dir = Path(options.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if options.fidelity_tier.strip().upper() == "B":
-        raise ValueError(
-            "Tier B adapter is not implemented (plan phase 4). Use --tier A for prices-history backtests."
-        )
-
     if options.require_validated_manifest:
         rep = load_validate_report(archive)
         if rep is None:
@@ -508,6 +565,16 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
     cfg = load_nothing_happens_for_backtest(options.config_path)
     spread = SpreadModelV0(half_spread=options.half_spread)
     cash0 = max(0.0, float(options.initial_cash))
+    risk = RiskController(RiskConfig.from_env()) if options.simulate_risk_caps else None
+    ctx = build_price_context(
+        archive=archive,
+        fidelity_tier=options.fidelity_tier,
+        l2_archive=Path(options.l2_archive) if options.l2_archive else None,
+        cfg=cfg,
+        spread=spread,
+        risk=risk,
+        fee_bps=options.fee_bps,
+    )
 
     u_path = archive / "universe.parquet"
     if not u_path.exists():
@@ -518,7 +585,7 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
 
     _apply_gates(
         rows=rows,
-        archive=archive,
+        ctx=ctx,
         min_markets_with_data=options.min_markets_with_data,
         min_bars_per_market=options.min_bars_per_market,
     )
@@ -527,18 +594,14 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
     if mode in {"single_market_only", "single"}:
         per_market, entries, skipped_reasons, max_dd = _run_single_market_only(
             rows=rows,
-            archive=archive,
-            cfg=cfg,
-            spread=spread,
+            ctx=ctx,
             cash0=cash0,
             options=options,
         )
     elif mode in {"serial_by_slug", "serial"}:
         per_market, entries, skipped_reasons, max_dd = _run_portfolio_shared_wallet(
             rows=rows,
-            archive=archive,
-            cfg=cfg,
-            spread=spread,
+            ctx=ctx,
             cash0=cash0,
             options=options,
             time_ordered=False,
@@ -546,9 +609,7 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
     elif mode in {"time_ordered_global", "global"}:
         per_market, entries, skipped_reasons, max_dd = _run_portfolio_shared_wallet(
             rows=rows,
-            archive=archive,
-            cfg=cfg,
-            spread=spread,
+            ctx=ctx,
             cash0=cash0,
             options=options,
             time_ordered=True,
@@ -574,11 +635,20 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
     if options.drawdown_mode == "off":
         live_excluded.append("step_mtm_drawdown")
     if options.portfolio_sequencing.strip().lower() not in {"single_market_only", "single"}:
-        live_excluded.append("portfolio_risk_caps_not_simulated")
+        if not options.simulate_risk_caps:
+            live_excluded.append("portfolio_risk_caps_not_simulated")
 
+    exec_fid = (
+        "l2_best_ask_parquet"
+        if options.fidelity_tier.strip().upper() == "B"
+        else "indicative"
+    )
     manifest_payload = {
         "fidelity_tier": options.fidelity_tier,
-        "execution_fidelity": "indicative",
+        "execution_fidelity": exec_fid,
+        "l2_archive": str(options.l2_archive) if options.l2_archive else None,
+        "fee_bps": options.fee_bps,
+        "simulate_risk_caps": options.simulate_risk_caps,
         "spread_model": "SpreadModelV0",
         "half_spread": options.half_spread,
         "discretization": options.discretization,
@@ -626,7 +696,7 @@ def run_backtest(options: BacktestRunOptions) -> dict[str, Any]:
         "win_rate_where_outcome_known": win_rate,
         "max_drawdown_proxy_usd": max_dd,
         "fidelity_tier": options.fidelity_tier,
-        "execution_fidelity": "indicative",
+        "execution_fidelity": exec_fid,
         "universe_manifest_hash": canonical_json_hash(rows),
         "universe_rule": ur,
         "resolution_status_counts": res_counts,

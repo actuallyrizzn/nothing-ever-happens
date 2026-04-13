@@ -104,6 +104,11 @@ class DashboardServer:
         self._resolutions: dict[str, str] = {}
         self._pending_resolution_slugs: list[str] = []
         self._last_resolution_poll = 0.0
+        self._backtest_jobs = None
+        if os.getenv("BACKTEST_UI", "").strip().lower() in {"1", "true", "yes"}:
+            from bot.backtest.jobs import BacktestJobQueue
+
+            self._backtest_jobs = BacktestJobQueue(auth=self._auth)
 
     async def _index(self, request: web.Request):
         if self._auth is None:
@@ -116,7 +121,12 @@ class DashboardServer:
             '<a href="/help" target="_blank" rel="noopener noreferrer" style="color:#b2a796;text-decoration:none;">Help</a>'
             '<a href="/admin/settings" style="color:#e79d54;text-decoration:none;">Settings</a>'
             '<a href="/admin/users" style="color:#b2a796;text-decoration:none;">Users</a>'
-            '<a href="/admin/change-password" style="color:#b2a796;text-decoration:none;">Password</a>'
+            + (
+                '<a href="/admin/backtest" style="color:#b2a796;text-decoration:none;">Backtest</a>'
+                if self._backtest_jobs is not None
+                else ""
+            )
+            + '<a href="/admin/change-password" style="color:#b2a796;text-decoration:none;">Password</a>'
             '<form method="POST" action="/logout" style="margin:0;display:inline;">'
             f'<input type="hidden" name="csrf_token" value="{html_escape(csrf)}">'
             '<button type="submit" style="background:transparent;border:1px solid rgba(255,234,205,0.2);'
@@ -694,6 +704,8 @@ class DashboardServer:
             app.router.add_post("/admin/change-password", self._change_password_post)
             app.router.add_get("/admin/settings", self._admin_settings_get)
             app.router.add_post("/admin/settings", self._admin_settings_post)
+        if self._backtest_jobs is not None:
+            self._backtest_jobs.register_routes(app)
         return app
 
     async def run(self) -> None:

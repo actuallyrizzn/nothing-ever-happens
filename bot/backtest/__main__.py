@@ -7,6 +7,7 @@ from pathlib import Path
 
 from bot.backtest.calibrate import run_tier_a_calibration
 from bot.backtest.ingest import asdict_stats, run_ingest
+from bot.backtest.compare import write_compare_report
 from bot.backtest.run import BacktestRunOptions, run_backtest
 from bot.backtest.validate import validate_archive, write_validate_report
 
@@ -47,6 +48,16 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
     return 0 if not payload.get("errors") else 1
 
 
+def _cmd_compare(args: argparse.Namespace) -> int:
+    write_compare_report(
+        run_dir_a=Path(args.run_a),
+        run_dir_b=Path(args.run_b),
+        out_html=Path(args.out_html),
+    )
+    print(str(Path(args.out_html).resolve()))
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
         summary = run_backtest(
@@ -67,6 +78,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 min_bars_per_market=args.min_bars_per_market,
                 require_validated_manifest=args.require_validated_manifest,
                 calibration_run_id=args.calibration_run_id,
+                l2_archive=Path(args.l2_archive) if args.l2_archive else None,
+                fee_bps=args.fee_bps,
+                simulate_risk_caps=args.simulate_risk_caps,
             )
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -96,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("--archive", required=True)
     pv.set_defaults(func=_cmd_validate)
 
-    pc = sub.add_parser("calibrate", help="Tier A: compare history p vs /book best ask (§2.4)")
+    pc = sub.add_parser("calibrate", help="Tier A: compare history p vs /book best ask (plan 2.4)")
     pc.add_argument("--host", default="https://clob.polymarket.com")
     pc.add_argument(
         "--tokens",
@@ -162,7 +176,29 @@ def main(argv: list[str] | None = None) -> int:
         default="uncalibrated",
         help="Label for Tier A calibration run (metadata)",
     )
+    pr.add_argument(
+        "--l2-archive",
+        default=None,
+        help="Tier B: directory of per-token L2 Parquet files (t, best_ask)",
+    )
+    pr.add_argument(
+        "--fee-bps",
+        type=float,
+        default=0.0,
+        help="Fee in basis points applied where outcome is known",
+    )
+    pr.add_argument(
+        "--simulate-risk-caps",
+        action="store_true",
+        help="Simulate RiskController gates from env (same as live)",
+    )
     pr.set_defaults(func=_cmd_run)
+
+    pcmp = sub.add_parser("compare", help="HTML report comparing two run directories (summary.json)")
+    pcmp.add_argument("--run-a", required=True, dest="run_a", help="First run output directory")
+    pcmp.add_argument("--run-b", required=True, dest="run_b", help="Second run output directory")
+    pcmp.add_argument("--out-html", required=True, dest="out_html", help="Write comparison HTML here")
+    pcmp.set_defaults(func=_cmd_compare)
 
     args = p.parse_args(argv)
     return int(args.func(args))
