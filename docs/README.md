@@ -26,7 +26,7 @@ These are **not** linked from the dashboard UI. Use them when editing code, host
 | Live gates, keys, signature types | [trading-and-safety.md](trading-and-safety.md) |
 | `PM_NH_*` reference | [strategy-parameters.md](strategy-parameters.md) |
 | `PM_RISK_*` reference | [risk-controls.md](risk-controls.md) |
-| Backtesting (proposed plan) | [backtesting-proposal.md](backtesting-proposal.md) |
+| Backtesting plan + offline CLI (`python -m bot.backtest`) | [backtesting-proposal.md](backtesting-proposal.md) |
 | Auth implementation detail | [admin-and-auth.md](admin-and-auth.md) |
 | Deploy, nginx, paths | [deployment.md](deployment.md) |
 | Incident-style checks | [troubleshooting.md](troubleshooting.md) |

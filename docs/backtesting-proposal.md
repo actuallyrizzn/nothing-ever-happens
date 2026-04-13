@@ -387,21 +387,27 @@ Multi-market: apply **`portfolio_sequencing`** (§5.6).
 1. **`--min-markets-with-data`** and **`--min-bars-per-market`** — abort if unmet.
 2. **`summary.json`** always includes **`markets_total`**, **`markets_with_entry`**, **`markets_skipped_reason_counts`**.
 
-### 8.4 CLI (illustrative)
+### 8.4 CLI (implemented — v1)
+
+**Universe file for ingest:** JSONL, one object per line. Required: **`no_token_id`** (NO CLOB token id). Optional: `slug`, `start_ts`, `end_ts`, `t_open`, `t_open_source`, `t_end`, `outcome_no_wins`, `resolution_status`, `condition_id`, `min_order_size`, `gamma_snapshot_utc`.
+
+```text
+python -m bot.backtest ingest --archive ./var/backtest/demo --universe ./universe.jsonl
+```
+
+```text
+python -m bot.backtest validate --archive ./var/backtest/demo
+```
 
 ```text
 python -m bot.backtest run \
-  --archive ./var/backtest/v2026-04 \
-  --universe ./universe.parquet \
+  --archive ./var/backtest/demo \
   --config-json ./backtest_cfg.json \
-  --tier A \
-  --portfolio-sequencing single_market_only \
+  --initial-cash 10000 \
   --out ./runs/run_001
 ```
 
-```text
-python -m bot.backtest validate --archive ./var/backtest/v2026-04
-```
+(`run` reads **`universe.parquet`** inside the archive produced by **`ingest`**; `--tier` / `--portfolio-sequencing` flags are expressed in **`run_manifest.json`** for this v1.)
 
 ### 8.5 Dashboard integration (later)
 
@@ -541,3 +547,4 @@ Expose **`429`** with **`Retry-After`** from app when internal quota exceeded.
 | Initial | High-level proposal |
 | 2026-04-13 | Expanded: first-executable definition, archive-first vs dial API, rate limits, schema, ingest/backtest specs, quotas, phased tasks |
 | 2026-04-13 | Risk mitigations: calibration, coverage gates, `t_open` freeze, sequencing modes, shared fill, recovery/scheduling/DD flags, validate command, survivorship, parity matrix, removed non-engineering/legal framing |
+| 2026-04-13 | **Implementation v1:** `python -m bot.backtest` (`ingest`, `validate`, `run`), `bot/order_math.py`, `pytest.ini` `pythonpath` |

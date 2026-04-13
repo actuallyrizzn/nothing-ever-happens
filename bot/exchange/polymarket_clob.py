@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from bot.config import ExchangeConfig
+from bot.order_math import clamp_probability as _clamp_probability
 from bot.models import (
     LimitOrderIntent,
     MarketOrderIntent,
@@ -747,5 +748,3 @@ def _coerce_float(raw: Any, field_name: str) -> float:
         raise ValueError(f"Could not parse float field '{field_name}' from value {raw!r}") from exc
 
 
-def _clamp_probability(price: float) -> float:
-    return max(0.01, min(0.99, float(price)))

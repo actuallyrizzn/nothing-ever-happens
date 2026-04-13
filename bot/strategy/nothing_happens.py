@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import aiohttp
 
 from bot.config import NothingHappensConfig
+from bot.order_math import submitted_buy_price
 from bot.models import MarketOrderIntent, OrderBookSnapshot, Side
 from bot.nothing_happens_control import NothingHappensControlState
 from bot.order_status import normalize_order_status
@@ -139,10 +140,6 @@ def _max_notional_within_price(book: OrderBookSnapshot, price_cap: float) -> flo
         if level.price <= price_cap + 1e-9:
             total += level.price * level.size
     return total
-
-
-def _clamp_probability(price: float) -> float:
-    return max(0.01, min(0.99, float(price)))
 
 
 def _eta_seconds(end_ts: float) -> float:
@@ -1374,9 +1371,11 @@ class NothingHappensRuntime:
                     self.shutdown_event.set()
 
     def _submitted_buy_price(self, reference_price: float) -> float:
-        if self.cfg.max_entry_price > 0:
-            return _clamp_probability(self.cfg.max_entry_price)
-        return _clamp_probability(reference_price + self.cfg.allowed_slippage)
+        return submitted_buy_price(
+            reference_price,
+            max_entry_price=self.cfg.max_entry_price,
+            allowed_slippage=self.cfg.allowed_slippage,
+        )
 
     def _target_notional(
         self,
