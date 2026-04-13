@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,20 +46,74 @@ class SettingField:
 
 # All keys we support in the admin UI / DB (non-secret defaults can be seeded).
 FIELDS: tuple[SettingField, ...] = (
-    SettingField("BOT_MODE", "Bot mode", "Trading mode", "choice", "paper = simulated exchange; live = real CLOB when all toggles allow.", choices=("paper", "live")),
-    SettingField("DRY_RUN", "Dry run", "Trading mode", "bool", "When true, no live order transmission even in live mode stack."),
+    SettingField(
+        "BOT_MODE",
+        "Bot mode",
+        "Trading mode",
+        "choice",
+        "paper = simulated exchange; live = real CLOB when all toggles allow.",
+        choices=("paper", "live"),
+        value_hint="Fixed choices only (paper / live)—not a number, percent, or basis points.",
+    ),
+    SettingField(
+        "DRY_RUN",
+        "Dry run",
+        "Trading mode",
+        "bool",
+        "When true, no live order transmission even in live mode stack.",
+        value_hint="true or false from the menu—not 0–100, not bps, not a fraction of 1.",
+    ),
     SettingField(
         "LIVE_TRADING_ENABLED",
         "Live trading enabled",
         "Trading mode",
         "bool",
         "Must be true with BOT_MODE=live and DRY_RUN=false to send real orders.",
+        value_hint="true or false from the menu—not a percentage. All three trading switches must align for real orders.",
     ),
-    SettingField("PRIVATE_KEY", "Private key", "Secrets", "str", "Wallet private key for Polymarket CLOB (hex).", secret=True),
-    SettingField("FUNDER_ADDRESS", "Funder / proxy address", "Secrets", "str", "Required for signature_type 1 or 2.", secret=True),
-    SettingField("POLYGON_RPC_URL", "Polygon RPC URL", "Secrets", "str", "HTTPS RPC for on-chain approvals / redeemer.", secret=True),
-    SettingField("PM_CONNECTION_HOST", "CLOB host", "Polymarket connection", "str", "Default https://clob.polymarket.com"),
-    SettingField("PM_CONNECTION_CHAIN_ID", "Chain ID", "Polymarket connection", "int", "137 for Polygon."),
+    SettingField(
+        "PRIVATE_KEY",
+        "Private key",
+        "Secrets",
+        "str",
+        "Wallet private key for Polymarket CLOB (hex).",
+        secret=True,
+        value_hint="Secret key text (hex). Not a percent or bps. Leave blank when saving to keep the stored key.",
+    ),
+    SettingField(
+        "FUNDER_ADDRESS",
+        "Funder / proxy address",
+        "Secrets",
+        "str",
+        "Required for signature_type 1 or 2.",
+        secret=True,
+        value_hint="Ethereum-style address (0x…). Not a percentage. Leave blank when saving to keep the stored value.",
+    ),
+    SettingField(
+        "POLYGON_RPC_URL",
+        "Polygon RPC URL",
+        "Secrets",
+        "str",
+        "HTTPS RPC for on-chain approvals / redeemer.",
+        secret=True,
+        value_hint="Full https://… URL to a Polygon JSON-RPC endpoint—not a number or percent.",
+    ),
+    SettingField(
+        "PM_CONNECTION_HOST",
+        "CLOB host",
+        "Polymarket connection",
+        "str",
+        "Default https://clob.polymarket.com",
+        value_hint="Full API base URL string—typically the default. Not a percentage.",
+    ),
+    SettingField(
+        "PM_CONNECTION_CHAIN_ID",
+        "Chain ID",
+        "Polymarket connection",
+        "int",
+        "137 for Polygon.",
+        value_hint="Whole number network id (e.g. 137 for Polygon)—not a percent or basis points.",
+    ),
     SettingField(
         "PM_CONNECTION_SIGNATURE_TYPE",
         "Signature type",
@@ -66,17 +121,41 @@ FIELDS: tuple[SettingField, ...] = (
         "choice",
         "0 = EOA; 1 / 2 = proxy / delegated flows.",
         choices=("0", "1", "2"),
+        value_hint="Single digit 0, 1, or 2 from the list—how your account signs. Not a percentage.",
     ),
-    SettingField("TRADE_LEDGER_PATH", "Trade ledger (JSONL)", "Paths & logging", "str", "Append-only JSONL path for tails / dashboard."),
-    SettingField("LOG_LEVEL", "Log level", "Paths & logging", "choice", "", choices=("DEBUG", "INFO", "WARNING", "ERROR")),
+    SettingField(
+        "TRADE_LEDGER_PATH",
+        "Trade ledger (JSONL)",
+        "Paths & logging",
+        "str",
+        "Append-only JSONL path for tails / dashboard.",
+        value_hint="Filesystem path to the JSONL file (slashes ok)—not a numeric percent.",
+    ),
+    SettingField(
+        "LOG_LEVEL",
+        "Log level",
+        "Paths & logging",
+        "choice",
+        "",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        value_hint="One of four named levels from the list—not a number or fraction.",
+    ),
     SettingField(
         "PM_BACKGROUND_EXECUTOR_WORKERS",
         "Background executor workers",
         "Paths & logging",
         "int",
         "Thread pool size for blocking exchange calls.",
+        value_hint="Whole number of worker threads (≥1)—not a percentage of CPU.",
     ),
-    SettingField("BOT_VARIANT", "Bot variant tag", "Paths & logging", "str", "Optional label recorded on ledger rows."),
+    SettingField(
+        "BOT_VARIANT",
+        "Bot variant tag",
+        "Paths & logging",
+        "str",
+        "Optional label recorded on ledger rows.",
+        value_hint="Short text tag or empty—for labeling rows in history. Not a percent.",
+    ),
     SettingField(
         "PM_NH_MARKET_REFRESH_INTERVAL_SEC",
         "Market refresh (sec)",
@@ -571,6 +650,22 @@ SECTION_DOC_FRAGMENTS: dict[str, str] = {
 }
 
 
+def _ordered_sections() -> list[tuple[str, list[SettingField]]]:
+    order: list[str] = []
+    by_section: dict[str, list[SettingField]] = {}
+    for f in FIELDS:
+        if f.section not in by_section:
+            order.append(f.section)
+            by_section[f.section] = []
+        by_section[f.section].append(f)
+    return [(s, by_section[s]) for s in order]
+
+
+def _section_tab_id(section: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", section.lower()).strip("-")
+    return s or "section"
+
+
 def _field_help_and_value_hint_html(field: SettingField) -> str:
     from html import escape
 
@@ -582,16 +677,81 @@ def _field_help_and_value_hint_html(field: SettingField) -> str:
     return "".join(parts)
 
 
-def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, str]) -> str:
-    """Build HTML inputs for all settings (no outer form tag)."""
+def _render_field_row(
+    field: SettingField,
+    values: dict[str, Any],
+    fingerprints: dict[str, str],
+) -> str:
     from html import escape
 
-    sections: dict[str, list[SettingField]] = {}
-    for field in FIELDS:
-        sections.setdefault(field.section, []).append(field)
+    val = values.get(field.key, "")
+    fid = escape(field.key)
+    label = escape(field.label)
+    hint_block = _field_help_and_value_hint_html(field)
+    if field.secret:
+        fp = fingerprints.get(field.key, "")
+        fp_html = (
+            f'<p class="field-fp muted">Currently stored: {escape(fp or "—")}</p>' if fp else ""
+        )
+        return (
+            f'<div class="field"><label for="{fid}">{label}</label>'
+            f'<input type="password" id="{fid}" name="{field.key}" '
+            'autocomplete="off" placeholder="Leave blank to keep unchanged">'
+            f"{fp_html}{hint_block}</div>"
+        )
+    if field.kind == "bool":
+        checked_t = " selected" if val is True else ""
+        checked_f = " selected" if val is not True else ""
+        return (
+            f'<div class="field"><label for="{fid}">{label}</label>'
+            f'<select id="{fid}" name="{field.key}">'
+            f'<option value="false"{checked_f}>false</option>'
+            f'<option value="true"{checked_t}>true</option>'
+            f"</select>{hint_block}</div>"
+        )
+    if field.kind == "choice":
+        opts = []
+        for c in field.choices:
+            sel = " selected" if str(val) == str(c) else ""
+            opts.append(f'<option value="{escape(str(c))}"{sel}>{escape(str(c))}</option>')
+        return (
+            f'<div class="field"><label for="{fid}">{label}</label>'
+            f'<select id="{fid}" name="{field.key}">{"".join(opts)}</select>{hint_block}</div>'
+        )
+    sval = escape(str(val)) if val is not None else ""
+    return (
+        f'<div class="field"><label for="{fid}">{label}</label>'
+        f'<input type="text" id="{fid}" name="{field.key}" value="{sval}">{hint_block}</div>'
+    )
 
+
+def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, str]) -> str:
+    """Build HTML inputs for all settings (no outer form tag).
+
+    Sections are rendered as tabs (one panel per section) inside the same logical form;
+    inactive panels use the ``hidden`` attribute until the user switches tabs.
+    """
+    from html import escape
+
+    sections = _ordered_sections()
     parts: list[str] = []
-    for section, fields in sections.items():
+    parts.append('<div class="settings-tabs-root" data-settings-tabs>')
+    parts.append('<div class="settings-tablist" role="tablist" aria-label="Settings sections">')
+    for i, (section, _) in enumerate(sections):
+        tid = _section_tab_id(section)
+        selected = "true" if i == 0 else "false"
+        panel_id = f"panel-{tid}"
+        parts.append(
+            f'<button type="button" class="settings-tab" role="tab" id="tab-{tid}" '
+            f'aria-selected="{selected}" aria-controls="{panel_id}" '
+            f'data-tab-target="{panel_id}">{escape(section)}</button>'
+        )
+    parts.append("</div>")
+    parts.append('<div class="settings-tabpanels">')
+    for i, (section, fields) in enumerate(sections):
+        tid = _section_tab_id(section)
+        panel_id = f"panel-{tid}"
+        hidden_attr = "" if i == 0 else ' hidden="hidden"'
         frag = SECTION_DOC_FRAGMENTS.get(section)
         doc_link = (
             f' <a class="help-section-link" href="/help/settings#{frag}" '
@@ -599,50 +759,16 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
             if frag
             else ""
         )
+        parts.append(
+            f'<div id="{panel_id}" class="settings-tabpanel" role="tabpanel" '
+            f'aria-labelledby="tab-{tid}"{hidden_attr}>'
+        )
         parts.append(f'<h2 class="section-title">{escape(section)}{doc_link}</h2>')
         parts.append('<div class="settings-grid">')
         for field in fields:
-            val = values.get(field.key, "")
-            fid = escape(field.key)
-            label = escape(field.label)
-            hint_block = _field_help_and_value_hint_html(field)
-            if field.secret:
-                fp = fingerprints.get(field.key, "")
-                fp_html = (
-                    f'<p class="field-fp muted">Currently stored: {escape(fp or "—")}</p>' if fp else ""
-                )
-                parts.append(
-                    f'<div class="field"><label for="{fid}">{label}</label>'
-                    f'<input type="password" id="{fid}" name="{field.key}" '
-                    'autocomplete="off" placeholder="Leave blank to keep unchanged">'
-                    f"{fp_html}{hint_block}</div>"
-                )
-            elif field.kind == "bool":
-                checked_t = " selected" if val is True else ""
-                checked_f = " selected" if val is not True else ""
-                parts.append(
-                    f'<div class="field"><label for="{fid}">{label}</label>'
-                    f'<select id="{fid}" name="{field.key}">'
-                    f'<option value="false"{checked_f}>false</option>'
-                    f'<option value="true"{checked_t}>true</option>'
-                    f"</select>{hint_block}</div>"
-                )
-            elif field.kind == "choice":
-                opts = []
-                for c in field.choices:
-                    sel = " selected" if str(val) == str(c) else ""
-                    opts.append(f'<option value="{escape(str(c))}"{sel}>{escape(str(c))}</option>')
-                parts.append(
-                    f'<div class="field"><label for="{fid}">{label}</label>'
-                    f'<select id="{fid}" name="{field.key}">{"".join(opts)}</select>{hint_block}</div>'
-                )
-            else:
-                sval = escape(str(val)) if val is not None else ""
-                parts.append(
-                    f'<div class="field"><label for="{fid}">{label}</label>'
-                    f'<input type="text" id="{fid}" name="{field.key}" value="{sval}">{hint_block}</div>'
-                )
-        parts.append("</div>")
+            parts.append(_render_field_row(field, values, fingerprints))
+        parts.append("</div></div>")
+    parts.append("</div></div>")
     return "\n".join(parts)
 
 

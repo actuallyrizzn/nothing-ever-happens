@@ -73,8 +73,37 @@ label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; margin-top:
 .admin-nav { justify-content: space-between; margin-bottom: 2rem; }
 .error { color: #dc2626; margin-bottom: 1rem; }
 .muted { color: var(--text-muted); font-size: 0.875rem; }
-.section-title { font-size: 1.1rem; margin: 2rem 0 1rem; color: var(--text); }
-.section-title:first-child { margin-top: 0; }
+.section-title { font-size: 1.1rem; margin: 0 0 1rem; color: var(--text); }
+.settings-tabs-root { margin-bottom: 0.5rem; }
+.settings-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.settings-tab {
+  appearance: none;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.settings-tab:hover { color: var(--text); background: rgba(30, 41, 59, 0.6); }
+.settings-tab[aria-selected="true"] {
+  color: var(--text);
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+}
+.settings-tabpanels { min-height: 4rem; }
+.settings-tabpanel[hidden] { display: none !important; }
 .settings-grid { display: flex; flex-direction: column; gap: 0.25rem; }
 .field { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(51,65,85,0.5); }
 .field:last-child { border-bottom: none; }
@@ -136,6 +165,7 @@ h1 { font-size: 1.5rem; }
         Values are saved when you submit this form and loaded into the process at <strong>startup</strong>.
         After saving, <strong>restart the bot</strong> so the trading engine, CLOB client, and log level pick up changes.
         Clear a non-secret field and save to fall back to <code>config.json</code> / environment for that key (secrets: leave blank to keep).
+        Settings are grouped in <strong>tabs</strong> below (one tab per section); all fields still submit together.
         See <a href="/help/settings" target="_blank" rel="noopener noreferrer">settings help</a>
         or the <a href="/help" target="_blank" rel="noopener noreferrer">help overview</a>
         (section <strong>docs</strong> links open the matching chapter).
@@ -148,5 +178,31 @@ h1 { font-size: 1.5rem; }
     </div>
   </main>
 </div>
+<script>
+(function () {
+  document.querySelectorAll("[data-settings-tabs]").forEach(function (root) {
+    var tabs = root.querySelectorAll(".settings-tab[role=\"tab\"]");
+    var panels = root.querySelectorAll(".settings-tabpanel[role=\"tabpanel\"]");
+    function activate(targetId) {
+      tabs.forEach(function (t) {
+        var on = t.getAttribute("data-tab-target") === targetId;
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      panels.forEach(function (p) {
+        if (p.id === targetId) {
+          p.removeAttribute("hidden");
+        } else {
+          p.setAttribute("hidden", "hidden");
+        }
+      });
+    }
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        activate(tab.getAttribute("data-tab-target") || "");
+      });
+    });
+  });
+})();
+</script>
 </body>
 </html>

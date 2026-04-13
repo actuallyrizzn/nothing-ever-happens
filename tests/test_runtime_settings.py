@@ -9,8 +9,11 @@ import sqlalchemy as sa
 
 from bot.db import create_engine, create_tables, runtime_settings_table
 from bot.runtime_settings import (
+    FIELDS,
     apply_runtime_settings,
+    build_form_values,
     load_stored_settings,
+    render_settings_form_fields,
     save_settings_from_form,
     seed_runtime_settings_if_empty,
     validate_all_settings,
@@ -94,3 +97,19 @@ def test_save_preserves_secret_when_blank(tmp_path: Path, monkeypatch) -> None:
     assert ok, err
     stored = load_stored_settings(engine)
     assert stored["PRIVATE_KEY"] == "0xdeadbeef"
+
+
+def test_all_setting_fields_have_value_hint() -> None:
+    for f in FIELDS:
+        assert f.value_hint and str(f.value_hint).strip(), f.key
+
+
+def test_render_settings_form_uses_tabs_and_value_hints() -> None:
+    ctx = build_form_values(None)
+    html = render_settings_form_fields(ctx["values"], ctx["fingerprints"])
+    n_sections = len({f.section for f in FIELDS})
+    assert 'data-settings-tabs' in html
+    assert 'role="tablist"' in html
+    assert html.count('role="tab"') == n_sections
+    assert html.count('role="tabpanel"') == n_sections
+    assert html.count('class="field-value-hint"') == len(FIELDS)
