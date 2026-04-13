@@ -22,8 +22,13 @@ import time
 
 logger = logging.getLogger(__name__)
 
-_LEDGER_PATH = os.getenv("TRADE_LEDGER_PATH", "trades.jsonl")
 _ledger_fd = None
+# Path of the file currently held by _ledger_fd (must track env; see apply_runtime_settings in main).
+_ledger_open_path: str | None = None
+
+
+def _ledger_path() -> str:
+    return (os.getenv("TRADE_LEDGER_PATH") or "trades.jsonl").strip() or "trades.jsonl"
 _db_engine = None
 _QUEUE_MAXSIZE = max(128, int(os.getenv("PM_TRADE_LEDGER_QUEUE_MAXSIZE", "4096")))
 _ledger_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_QUEUE_MAXSIZE)
@@ -55,13 +60,24 @@ def get_db_engine():
     return _db_engine
 
 
-def _open_ledger():
-    global _ledger_fd
-    if _ledger_fd is None:
+def _open_ledger() -> None:
+    """Open append handle using current TRADE_LEDGER_PATH (reopens if env path changes)."""
+    global _ledger_fd, _ledger_open_path
+    path = _ledger_path()
+    if _ledger_fd is not None and _ledger_open_path == path:
+        return
+    if _ledger_fd is not None:
         try:
-            _ledger_fd = open(_LEDGER_PATH, "a", encoding="utf-8")
-        except OSError as e:
-            logger.warning("Could not open trade ledger at %s: %s", _LEDGER_PATH, e)
+            _ledger_fd.close()
+        except OSError:
+            pass
+        _ledger_fd = None
+        _ledger_open_path = None
+    try:
+        _ledger_fd = open(path, "a", encoding="utf-8")
+        _ledger_open_path = path
+    except OSError as e:
+        logger.warning("Could not open trade ledger at %s: %s", path, e)
 
 
 def _write_record(record: dict) -> None:

@@ -37,18 +37,19 @@ def test_record_order_logs_to_logger(caplog):
     assert rec.order_status == "filled"
 
 
-def test_record_order_writes_to_file():
+def test_record_order_writes_to_file(monkeypatch):
     """record_order also writes JSON-lines to the ledger file."""
     import bot.trade_ledger as tl
 
-    # Use a temp file to avoid polluting the repo
-    old_path = tl._LEDGER_PATH
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        tmp_path = f.name
     old_fd = tl._ledger_fd
+    old_open_path = tl._ledger_open_path
+    old_env = os.environ.get("TRADE_LEDGER_PATH")
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            tmp_path = f.name
-        tl._LEDGER_PATH = tmp_path
-        tl._ledger_fd = None  # force re-open
+        monkeypatch.setenv("TRADE_LEDGER_PATH", tmp_path)
+        tl._ledger_fd = None
+        tl._ledger_open_path = None
 
         record_order(
             action="sell",
@@ -68,8 +69,12 @@ def test_record_order_writes_to_file():
         assert data["side"] == "DOWN"
         assert data["amount"] == 3.0
     finally:
-        tl._LEDGER_PATH = old_path
         tl._ledger_fd = old_fd
+        tl._ledger_open_path = old_open_path
+        if old_env is None:
+            monkeypatch.delenv("TRADE_LEDGER_PATH", raising=False)
+        else:
+            monkeypatch.setenv("TRADE_LEDGER_PATH", old_env)
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -95,6 +100,40 @@ def test_record_order_includes_error_and_extras(caplog):
     rec = trade_logs[0]
     assert rec.error == "timeout"
     assert rec.custom_field == "custom_value"
+
+
+def test_ledger_reopens_when_trade_ledger_path_env_changes(monkeypatch, tmp_path):
+    """Writes follow TRADE_LEDGER_PATH after env updates (e.g. runtime_settings applied)."""
+    import bot.trade_ledger as tl
+
+    a = tmp_path / "a.jsonl"
+    b = tmp_path / "b.jsonl"
+    monkeypatch.setenv("TRADE_LEDGER_PATH", str(a))
+    tl._ledger_fd = None
+    tl._ledger_open_path = None
+    record_order(
+        action="buy",
+        market_slug="m1",
+        side="NO",
+        token_id="t1",
+        amount=1.0,
+    )
+    assert flush_trade_ledger()
+    assert a.read_text(encoding="utf-8").strip()
+    assert not b.exists()
+
+    monkeypatch.setenv("TRADE_LEDGER_PATH", str(b))
+    record_order(
+        action="buy",
+        market_slug="m2",
+        side="NO",
+        token_id="t2",
+        amount=2.0,
+    )
+    assert flush_trade_ledger()
+    line = b.read_text(encoding="utf-8").strip()
+    assert "m2" in line
+    assert a.read_text(encoding="utf-8").count("\n") == 1
 
 
 def test_shutdown_trade_ledger_drains_queued_records(monkeypatch):

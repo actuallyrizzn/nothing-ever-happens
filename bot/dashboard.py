@@ -94,7 +94,7 @@ class DashboardServer:
         self._clients: set[web.WebSocketResponse] = set()
         self._last_portfolio_version = -1
         self._last_nothing_happens_control_version = -1
-        self._ledger_path = os.getenv("TRADE_LEDGER_PATH", "trades.jsonl")
+        # Tail the same path trade_ledger writes (env may change at startup via runtime_settings).
         self._ledger_pos = 0
         self._trade_history: deque[dict] = deque(maxlen=TRADE_HISTORY_LIMIT)
         self._starting_balance: float | None = None
@@ -560,9 +560,10 @@ class DashboardServer:
 
     async def _poll_trades(self) -> None:
         try:
-            if not os.path.exists(self._ledger_path):
+            ledger_path = (os.getenv("TRADE_LEDGER_PATH") or "trades.jsonl").strip() or "trades.jsonl"
+            if not os.path.exists(ledger_path):
                 return
-            with open(self._ledger_path, "r") as f:
+            with open(ledger_path, "r") as f:
                 f.seek(self._ledger_pos)
                 for line in f:
                     line = line.strip()

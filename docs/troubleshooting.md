@@ -28,6 +28,10 @@ WAL mode and busy timeouts are enabled; heavy concurrent access from external to
 
 In-app help is built from **`docs/user/`**. If that folder is missing on the server (partial deploy), `/help` returns **404**. Ensure the full repository is checked out.
 
+## Recent trades empty or split across two files {: #trades-ledger-mismatch }
+
+The dashboard tails **`TRADE_LEDGER_PATH`** from the environment **after** DB `runtime_settings` are applied at startup. If `.env` pointed at one path and **Admin → Settings** stored a different `TRADE_LEDGER_PATH`, older builds could append new lines to the wrong file while the UI read another. Keep **one** path (prefer an **absolute** path) in both `.env` and runtime settings, or clear the DB row to fall back to `.env`.
+
 ## Related docs
 
 - [Configuration overview](configuration-overview.md)  
