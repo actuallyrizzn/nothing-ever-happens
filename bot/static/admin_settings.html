@@ -180,14 +180,10 @@ h1 { font-size: 1.5rem; }
     {{ERROR}}
     <div class="info-box mb-2">
       <p class="muted" style="margin-bottom:1rem;">
-        Values are saved when you submit this form and loaded into the process at <strong>startup</strong>.
-        After saving, <strong>restart the bot</strong> so the trading engine, CLOB client, and log level pick up changes.
-        If your host configured a restart flag + cron, use the checkbox below to request that restart from the browser.
-        Clear a non-secret field and save to fall back to <code>config.json</code> / environment for that key (secrets: leave blank to keep).
-        Settings are grouped in <strong>tabs</strong> below (one tab per section); all fields still submit together.
-        See <a href="/help/settings" target="_blank" rel="noopener noreferrer">settings help</a>
-        or the <a href="/help" target="_blank" rel="noopener noreferrer">help overview</a>
-        (section <strong>docs</strong> links open the matching chapter).
+        Submit saves to the database; the running bot reads these at <strong>startup</strong>—restart after changes.
+        Secrets: leave blank to keep. Other fields: clear and save to fall back to <code>config.json</code> or env.
+        Use the restart checkbox if your host wired it up. <a href="/help/settings" target="_blank" rel="noopener noreferrer">Settings help</a>
+        · <a href="/help" target="_blank" rel="noopener noreferrer">Help</a>
       </p>
       <form method="POST" action="/admin/settings">
         <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
