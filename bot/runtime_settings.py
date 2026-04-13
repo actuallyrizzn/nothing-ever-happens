@@ -53,7 +53,7 @@ FIELDS: tuple[SettingField, ...] = (
         "choice",
         "paper = simulated exchange; live = real CLOB when all toggles allow.",
         choices=("paper", "live"),
-        value_hint="Fixed choices only (paper / live)—not a number, percent, or basis points.",
+        value_hint="Simulated exchange (paper) vs real CLOB (live).",
     ),
     SettingField(
         "DRY_RUN",
@@ -61,7 +61,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Trading mode",
         "bool",
         "When true, no live order transmission even in live mode stack.",
-        value_hint="true or false from the menu—not 0–100, not bps, not a fraction of 1.",
+        value_hint='When on, live sends are blocked even if other flags look "live."',
     ),
     SettingField(
         "LIVE_TRADING_ENABLED",
@@ -69,7 +69,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Trading mode",
         "bool",
         "Must be true with BOT_MODE=live and DRY_RUN=false to send real orders.",
-        value_hint="true or false from the menu—not a percentage. All three trading switches must align for real orders.",
+        value_hint="Turns on the real order path together with live mode and dry run off.",
     ),
     SettingField(
         "PRIVATE_KEY",
@@ -78,7 +78,7 @@ FIELDS: tuple[SettingField, ...] = (
         "str",
         "Wallet private key for Polymarket CLOB (hex).",
         secret=True,
-        value_hint="Secret key text (hex). Not a percent or bps. Leave blank when saving to keep the stored key.",
+        value_hint="Hex private key. Leave blank when saving to keep the key already stored.",
     ),
     SettingField(
         "FUNDER_ADDRESS",
@@ -87,7 +87,7 @@ FIELDS: tuple[SettingField, ...] = (
         "str",
         "Required for signature_type 1 or 2.",
         secret=True,
-        value_hint="Ethereum-style address (0x…). Not a percentage. Leave blank when saving to keep the stored value.",
+        value_hint="0x wallet address. Leave blank when saving to keep the value already stored.",
     ),
     SettingField(
         "POLYGON_RPC_URL",
@@ -96,7 +96,7 @@ FIELDS: tuple[SettingField, ...] = (
         "str",
         "HTTPS RPC for on-chain approvals / redeemer.",
         secret=True,
-        value_hint="Full https://… URL to a Polygon JSON-RPC endpoint—not a number or percent.",
+        value_hint="HTTPS endpoint for Polygon JSON-RPC (used for on-chain steps).",
     ),
     SettingField(
         "PM_CONNECTION_HOST",
@@ -104,7 +104,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Polymarket connection",
         "str",
         "Default https://clob.polymarket.com",
-        value_hint="Full API base URL string—typically the default. Not a percentage.",
+        value_hint="Polymarket CLOB API base URL.",
     ),
     SettingField(
         "PM_CONNECTION_CHAIN_ID",
@@ -112,7 +112,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Polymarket connection",
         "int",
         "137 for Polygon.",
-        value_hint="Whole number network id (e.g. 137 for Polygon)—not a percent or basis points.",
+        value_hint="Network id as an integer (Polygon mainnet is usually 137).",
     ),
     SettingField(
         "PM_CONNECTION_SIGNATURE_TYPE",
@@ -121,7 +121,7 @@ FIELDS: tuple[SettingField, ...] = (
         "choice",
         "0 = EOA; 1 / 2 = proxy / delegated flows.",
         choices=("0", "1", "2"),
-        value_hint="Single digit 0, 1, or 2 from the list—how your account signs. Not a percentage.",
+        value_hint="Must match how your Polymarket account signs (see help above).",
     ),
     SettingField(
         "TRADE_LEDGER_PATH",
@@ -129,7 +129,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Paths & logging",
         "str",
         "Append-only JSONL path for tails / dashboard.",
-        value_hint="Filesystem path to the JSONL file (slashes ok)—not a numeric percent.",
+        value_hint="Where to append the JSONL trade ledger (create parent dirs if needed).",
     ),
     SettingField(
         "LOG_LEVEL",
@@ -138,7 +138,7 @@ FIELDS: tuple[SettingField, ...] = (
         "choice",
         "",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
-        value_hint="One of four named levels from the list—not a number or fraction.",
+        value_hint="How verbose logging is; DEBUG is very chatty.",
     ),
     SettingField(
         "PM_BACKGROUND_EXECUTOR_WORKERS",
@@ -146,7 +146,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Paths & logging",
         "int",
         "Thread pool size for blocking exchange calls.",
-        value_hint="Whole number of worker threads (≥1)—not a percentage of CPU.",
+        value_hint="Number of worker threads for blocking API calls (at least 1).",
     ),
     SettingField(
         "BOT_VARIANT",
@@ -154,7 +154,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Paths & logging",
         "str",
         "Optional label recorded on ledger rows.",
-        value_hint="Short text tag or empty—for labeling rows in history. Not a percent.",
+        value_hint="Optional short tag stored on ledger rows; may be empty.",
     ),
     SettingField(
         "PM_NH_MARKET_REFRESH_INTERVAL_SEC",
@@ -162,28 +162,28 @@ FIELDS: tuple[SettingField, ...] = (
         "Strategy",
         "int",
         "How often to refresh candidate markets.",
-        value_hint="Whole seconds between full market-list refreshes—not a percentage.",
+        value_hint="Seconds between full refreshes of the candidate market list.",
     ),
     SettingField(
         "PM_NH_PRICE_POLL_INTERVAL_SEC",
         "Price poll (sec)",
         "Strategy",
         "int",
-        value_hint="Whole seconds between price checks—not a percentage.",
+        value_hint="Seconds between price checks on tracked markets.",
     ),
     SettingField(
         "PM_NH_POSITION_SYNC_INTERVAL_SEC",
         "Position sync (sec)",
         "Strategy",
         "int",
-        value_hint="Whole seconds between portfolio / cash syncs—not a percentage.",
+        value_hint="Seconds between portfolio and cash syncs with the exchange.",
     ),
     SettingField(
         "PM_NH_ORDER_DISPATCH_INTERVAL_SEC",
         "Order dispatch (sec)",
         "Strategy",
         "int",
-        value_hint="Whole seconds between attempts to open new positions—not a percentage.",
+        value_hint="Seconds between attempts to open new positions.",
     ),
     SettingField(
         "PM_NH_CASH_PCT_PER_TRADE",
@@ -191,8 +191,8 @@ FIELDS: tuple[SettingField, ...] = (
         "Strategy",
         "float",
         value_hint=(
-            "Decimal fraction of available cash per new trade, not basis points and not “percent” as an integer. "
-            "Example: 0.02 means 2% of cash (two hundredths). 2 or 200 would be wrong. Allowed range: above 0 up through 1.0 (100%)."
+            "Fraction of available cash per new trade: 0.02 means 2%, not “2” for 2%. "
+            "Use a decimal between 0 and 1 (1.0 = 100% of cash)."
         ),
     ),
     SettingField(
@@ -200,7 +200,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Min trade amount (USD)",
         "Strategy",
         "float",
-        value_hint="US dollars (plain number, e.g. 5 = five dollars). Not a ratio or basis points.",
+        value_hint="Minimum notional per order in US dollars (e.g. 5 = five dollars).",
     ),
     SettingField(
         "PM_NH_FIXED_TRADE_AMOUNT_USD",
@@ -208,7 +208,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Strategy",
         "float",
         "0 = use percentage only.",
-        value_hint="US dollars when using fixed sizing; 0 turns this off. Not a percentage of cash.",
+        value_hint="Fixed USD size per trade when you want flat sizing; 0 means use only cash %.",
     ),
     SettingField(
         "PM_NH_MAX_ENTRY_PRICE",
@@ -217,8 +217,7 @@ FIELDS: tuple[SettingField, ...] = (
         "float",
         "NO token price cap.",
         value_hint=(
-            "Polymarket price on a 0–1 scale (probability / dollars-per-payout share), not basis points. "
-            "Example: 0.65 ≈ 65¢ ask cap. Do not enter 65 for 65%—use 0.65."
+            "NO share price cap on Polymarket’s 0–1 scale (e.g. 0.65 ≈ 65¢), not 65 and not basis points."
         ),
     ),
     SettingField(
@@ -226,38 +225,35 @@ FIELDS: tuple[SettingField, ...] = (
         "Allowed slippage",
         "Strategy",
         "float",
-        value_hint=(
-            "Extra room on the same 0–1 price scale as max entry (added to the working price on buys), not basis points. "
-            "Example: 0.30 allows up to +0.30 on that scale—not 30 “bps” and not 0.003 for 30 bps."
-        ),
+        value_hint="Extra headroom on the same 0–1 price scale as max entry (e.g. 0.30).",
     ),
     SettingField(
         "PM_NH_REQUEST_CONCURRENCY",
         "Request concurrency",
         "Strategy",
         "int",
-        value_hint="Integer count of parallel in-flight requests—not a percentage.",
+        value_hint="How many exchange requests may run in parallel.",
     ),
     SettingField(
         "PM_NH_BUY_RETRY_COUNT",
         "Buy retry count",
         "Strategy",
         "int",
-        value_hint="Whole number of retries after a failed buy—not a percentage.",
+        value_hint="How many times to retry a failed buy before giving up.",
     ),
     SettingField(
         "PM_NH_BUY_RETRY_BASE_DELAY_SEC",
         "Buy retry base delay (sec)",
         "Strategy",
         "float",
-        value_hint="Seconds (can use decimals, e.g. 1.5)—backoff starts from this, not a percentage.",
+        value_hint="First backoff delay in seconds (decimals allowed, e.g. 1.5).",
     ),
     SettingField(
         "PM_NH_MAX_BACKOFF_SEC",
         "Max backoff (sec)",
         "Strategy",
         "float",
-        value_hint="Maximum seconds between retries—cap on delay time, not a percentage.",
+        value_hint="Ceiling on delay between retries, in seconds.",
     ),
     SettingField(
         "PM_NH_MAX_NEW_POSITIONS",
@@ -265,21 +261,21 @@ FIELDS: tuple[SettingField, ...] = (
         "Strategy",
         "int",
         "-1 = unlimited.",
-        value_hint="Integer position count (e.g. 5 = at most five new opens). -1 means no limit—not a percent.",
+        value_hint="Cap on new positions opened in a run; -1 means no limit.",
     ),
     SettingField(
         "PM_NH_SHUTDOWN_ON_MAX_NEW_POSITIONS",
         "Shutdown on max positions",
         "Strategy",
         "bool",
-        value_hint="true/false only—when true, stops opening once the max-new count is hit.",
+        value_hint="If on, the bot stops opening new positions once the cap is reached.",
     ),
     SettingField(
         "PM_NH_REDEEMER_INTERVAL_SEC",
         "Redeemer interval (sec)",
         "Strategy",
         "int",
-        value_hint="Whole seconds between on-chain redeemer ticks when that feature runs—not a percentage.",
+        value_hint="Seconds between on-chain redeemer passes when redemption is enabled.",
     ),
     SettingField(
         "PM_RISK_MAX_TOTAL_OPEN_EXPOSURE_USD",
@@ -287,14 +283,14 @@ FIELDS: tuple[SettingField, ...] = (
         "Risk",
         "float",
         "0 = use code default.",
-        value_hint="US dollars of total open notional across markets—not a percent of account. 0 here uses the built-in default.",
+        value_hint="Cap on total open notional in USD across all markets; 0 keeps the built-in default.",
     ),
     SettingField(
         "PM_RISK_MAX_MARKET_OPEN_EXPOSURE_USD",
         "Max per-market exposure (USD)",
         "Risk",
         "float",
-        value_hint="US dollars cap per market—not a percentage.",
+        value_hint="Cap on open notional in USD for a single market.",
     ),
     SettingField(
         "PM_RISK_MAX_DAILY_DRAWDOWN_USD",
@@ -303,8 +299,8 @@ FIELDS: tuple[SettingField, ...] = (
         "float",
         "0 disables balance drawdown breaker.",
         value_hint=(
-            "US dollars below the day’s balance high-water mark that triggers the breaker—not a percent. "
-            "Example: 100 means a $100 drop from the daily peak. 0 turns this rule off."
+            "Drawdown from the day’s balance high in USD that trips the breaker (e.g. 100 = $100 off the peak). "
+            "0 disables this rule."
         ),
     ),
     SettingField(
@@ -312,21 +308,21 @@ FIELDS: tuple[SettingField, ...] = (
         "Kill-switch cooldown (sec)",
         "Risk",
         "float",
-        value_hint="Seconds to wait after a risk kill before trying again—not a percentage.",
+        value_hint="How long to wait after a risk kill before trying again.",
     ),
     SettingField(
         "PM_RISK_DRAWDOWN_ARM_AFTER_SEC",
         "Drawdown arm after (sec)",
         "Risk",
         "float",
-        value_hint="Seconds after startup before drawdown logic arms—not a percentage.",
+        value_hint="Grace period after startup before drawdown limits apply.",
     ),
     SettingField(
         "PM_RISK_DRAWDOWN_MIN_FRESH_OBS",
         "Drawdown min fresh observations",
         "Risk",
         "int",
-        value_hint="Integer count of balance readings required—not a percentage.",
+        value_hint="How many balance readings are required before drawdown logic runs.",
     ),
 )
 
