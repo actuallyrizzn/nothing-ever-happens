@@ -11,14 +11,12 @@ from collections import defaultdict, deque
 from html import escape as html_escape
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from aiohttp import web
 
 from bot.backtest.run import BacktestRunOptions, run_backtest
-
-if TYPE_CHECKING:
-    from bot.dashboard_auth import DashboardAuth
+from bot.dashboard_auth import DashboardAuth
 
 
 def _datasets_from_env() -> list[dict[str, str]]:

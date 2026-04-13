@@ -21,6 +21,14 @@ def test_submitted_buy_price_uses_cap_when_positive() -> None:
     ) == clamp_probability(0.65)
 
 
+def test_submitted_buy_price_slippage_when_max_entry_non_positive() -> None:
+    assert submitted_buy_price(
+        0.40,
+        max_entry_price=0.0,
+        allowed_slippage=0.10,
+    ) == clamp_probability(0.50)
+
+
 def test_market_buy_buffered_price_matches_place_order_branch() -> None:
     assert market_buy_buffered_price(
         reference_price=0.40,

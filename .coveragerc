@@ -1,0 +1,16 @@
+[run]
+source = bot
+branch = false
+parallel = true
+
+[report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+    @abstractmethod
+
+# Target: raise toward 100% across bot/ + scripts/; CI can tighten --cov-fail-under over time.

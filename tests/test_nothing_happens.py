@@ -1137,3 +1137,9 @@ async def test_fetch_candidate_markets_streams_batches_without_full_snapshot() -
 
     assert [market.slug for market in markets] == ["will-it-rain"]
     assert session.calls == 1
+
+
+def test_control_rejects_negative_target_open_positions() -> None:
+    c = NothingHappensControlState()
+    with pytest.raises(ValueError, match="must be >= 0"):
+        c.set_target_open_positions(-1)
