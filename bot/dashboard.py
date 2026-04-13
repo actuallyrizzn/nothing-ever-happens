@@ -276,7 +276,7 @@ class DashboardServer:
         if engine is None:
             return web.Response(
                 status=503,
-                text="Bot database is not available; runtime settings require SQLite.",
+                text="Bot database is not available; runtime settings cannot be edited.",
                 content_type="text/plain",
                 charset="utf-8",
             )
