@@ -1,8 +1,8 @@
 # Backtesting — detailed plan
 
-This document is the **implementation-oriented plan** for backtesting the Nothing Ever Happens / Polymarket bot. It incorporates product decisions from design discussion: **what to measure**, **what data to use**, **archive vs live API**, **Polymarket limits**, and **how the dashboard should behave**.
+This document is the **implementation-oriented plan** for backtesting the Nothing Ever Happens / Polymarket bot: **what to measure**, **what data to use**, **archive vs live API**, **Polymarket limits**, and **optional dashboard hooks** for job orchestration.
 
-It remains a **plan** until built; section numbers are stable for review.
+It remains a **plan** until built; top-level section numbers are stable for review.
 
 ---
 
@@ -13,9 +13,9 @@ It remains a **plan** until built; section numbers are stable for review.
 | **Primary historical signal** | Polymarket CLOB **`GET /prices-history`** per **NO `token_id`**, stored locally after bulk ingest. |
 | **Core per-market question** | **Earliest time \(t\)** at which **your entry predicate** (from `NothingHappensConfig` + spread model) is true on the cached price path — **not** a fixed “first minute” or “first 15s” window. |
 | **Trades tape** | **Supplementary** (validation, volume research) — **not** the primary series for “when would **our** bot fire?” |
-| **Settings / UI interaction** | **Recompute locally** against the archive when users change dials; **do not** re-fetch a year of history per tweak. |
+| **Settings / UI interaction** | **Recompute locally** against the archive when dials change; **do not** re-fetch a year of history per tweak. |
 | **Network guardrails** | **Rate limits + quotas** on any code path that still hits Polymarket (cache miss, refresh, universe extend). |
-| **Fidelity v1** | **Tier A** (price history + synthetic ask / spread); **Tier B** optional (vendor 1m L2). |
+| **Fidelity v1** | **Tier A** (price history + synthetic ask / spread); **Tier B** optional (vendor 1m L2). Tier A carries a **measured** `p` vs live-book bias — see §2.4. |
 
 ---
 
@@ -29,13 +29,12 @@ It remains a **plan** until built; section numbers are stable for review.
 | G2 | **First executable moment** | For each market, report **`t_first`** = min time predicate holds (subject to discretization policy in §5). |
 | G3 | **Resolution PnL** | Binary payoff for simulated NO hold to resolution when outcome known. |
 | G4 | **Fast UX** | Dashboard / CLI backtest completes in **seconds** after cache warm (not proportional to re-downloading a year). |
-| G5 | **Honest reporting** | Every run exports **fidelity tier**, **spread model version**, **universe manifest hash**. |
+| G5 | **Traceable runs** | Every run exports **fidelity tier**, **spread model version**, **universe manifest hash**, **sequencing mode**, **`t_open` policy**, and **sim parity flags** (§5.5–5.6). |
 
 ### 1.2 Non-goals (v1)
 
-- Guaranteed parity with **live** fills (no hidden liquidity, no queue position).
+- Guaranteed parity with **live** fills (no hidden liquidity, no queue position) unless a **named sim mode** explicitly targets it.
 - **Dynamic discovery replay** (“exactly what Gamma would have returned each day last year”) without frozen universe or separate snapshot infra.
-- Regulatory / tax-grade “verified” returns.
 
 ---
 
@@ -64,9 +63,19 @@ If the predicate never holds, **`t_first = \emptyset`** (no simulated entry).
 
 | Tier | Input | Predicate uses | Limitation |
 | --- | --- | --- | --- |
-| **A** | `prices-history` + optional tick/min size from Gamma snapshot | Synthetic NO ask from \(p\) + model | Not true L2 depth. |
+| **A** | `prices-history` + optional tick/min size from Gamma snapshot | Synthetic NO ask from \(p\) + model | Not true L2 depth; **`p` is not a guaranteed NO best ask** — see §2.4. |
 | **B** | Minute L2 archive (e.g. PolymarketData) or self-snapshotted books | Walk ask ladder for size | Paid / heavier ingest. |
 | **C** | Full matching model | Research | Out of scope v1. |
+
+### 2.4 Price semantics, calibration, and error bands (Tier A)
+
+**Risk:** `p` from `/prices-history` may systematically differ from the live **NO best ask** (mid vs last trade vs leg mix-ups, stale bars). That biases **`t_first`**, fill price, and PnL.
+
+**Mitigations (required engineering):**
+
+1. **Phase-0 calibration study** — For a fixed sample of markets and timestamps, compare `p` at the nearest history bar to **`GET /book`** (or documented best-ask fields) on the **same NO `token_id`**. Record mean/median error, percentiles, and max abs error; attach to ingest run metadata as `tier_a_calibration_stats` (JSON).
+2. **Manifest + reports** — Store **`history_p_semantics_note`** (API doc link + date captured). Every `summary.json` includes **`fidelity_tier`** and **`calibration_run_id`** (or `uncalibrated`).
+3. **Tier B or forward book capture** — Any workflow marketed internally as **execution-accurate** must use Tier B or a self-built book archive from `t_open`; Tier A results stay labeled **indicative** in machine-readable metadata only (`execution_fidelity: indicative`).
 
 ---
 
@@ -80,7 +89,7 @@ If the predicate never holds, **`t_first = \emptyset`** (no simulated entry).
 | --- | --- | --- |
 | **`GET /prices-history`** | **1,000 requests / 10 s** | Per-endpoint sliding window. |
 | **CLOB general** | **9,000 requests / 10 s** | Shared across CLOB endpoints — ingestion jobs must account for **other** calls (`/book`, Gamma, etc.). |
-| **Enforcement style** | Cloudflare **throttle / queue** | Over limit → slowdown, not always clean 429; design jobs to **stay under** limits. |
+| **Enforcement style** | Cloudflare **throttle / queue** | Over limit → slowdown, not always clean **429**; jobs must **measure** latency under load and **stay under** limits with margin. |
 
 **Rough capacity:** ~100 `/prices-history` calls per second **sustained** if you dedicated the whole CLOB budget to that endpoint — in practice share with retries and other traffic; **plan for ~50–200 req/s effective** only after measurement.
 
@@ -104,7 +113,7 @@ If the predicate never holds, **`t_first = \emptyset`** (no simulated entry).
 If every backtest parameter change **re-hit** Polymarket for **N markets × full date range**, you get:
 
 - **Latency** proportional to **N** and network.
-- **Throttle risk** even within 1k/10s (large **N** or parallel users).
+- **Throttle risk** even within 1k/10s (large **N** or parallel jobs).
 - **Non-reproducible** runs if API responses shift slightly.
 
 **Conclusion:** **Respectable rate limits are mandatory** on any network path, but **insufficient** as the **primary** backtest architecture.
@@ -120,8 +129,8 @@ If every backtest parameter change **re-hit** Polymarket for **N markets × full
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Layer 1 — Durable archive (Parquet/SQLite/object store)     │
-│  • universe manifest + per-token price series + resolutions  │
-│  • versioned ingest run id + content hashes                 │
+│  • universe manifest + per-token price series + resolutions    │
+│  • versioned ingest run id + content hashes + coverage flags  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -136,6 +145,7 @@ If every backtest parameter change **re-hit** Polymarket for **N markets × full
 │  Layer 3 — Network façade (strict quotas)                    │
 │  • ingest job, “refresh market”, “extend window”             │
 │  • per-user / global token bucket; max concurrent fetches    │
+│  • single global ingest lock + queue (§7.4)                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -145,12 +155,12 @@ If every backtest parameter change **re-hit** Polymarket for **N markets × full
 
 ### 5.1 Evaluation grid \(\mathcal{T}\)
 
-Choose **one** policy (product decision):
+Choose **one** policy per run (record in `run_manifest.json`):
 
 | Policy | \(\mathcal{T}\) | Pros | Cons |
 | --- | --- | --- | --- |
 | **P1 — Data-native** | Every timestamp \(t_i\) present in cached `prices-history` | Simple, no extra assumptions | Spacing uneven; may miss between samples. |
-| **P2 — Poll-aligned** | Resample or nearest-neighbor to **`price_poll_interval_sec`** from configurable **`t_listing`** | Closer to live bot sampling | Requires defining **`t_listing`**; may undersample if history coarser than poll. |
+| **P2 — Poll-aligned** | Resample or nearest-neighbor to **`price_poll_interval_sec`** from documented **`t_open`** (§6.1) | Closer to live bot sampling | Requires frozen **`t_open`**; may undersample if history coarser than poll. |
 | **P3 — Hybrid** | P1 for “first hit” scan; optional P2 for reporting | Balance | More code. |
 
 **Recommendation:** **P1** for v1 implementation speed; **P2** as optional `--align-to-poll` for fidelity experiments.
@@ -165,7 +175,45 @@ Align with production logic in `nothing_happens.py`:
 
 Document **`spread_model`** version in run metadata.
 
-### 5.3 Algorithm (single market, single config)
+### 5.3 Shared fill / slippage / price-cap logic (code parity)
+
+**Risk:** Duplicated logic between sim and `place_market_order` drifts → endless “sim vs live” bugs.
+
+**Mitigations:**
+
+1. **Single pure function** (or small module) used by both the backtest engine **and** unit tests that assert parity with **`MarketOrderIntent`** + `allowed_slippage` + `price_cap` behavior in `nothing_happens` / `polymarket_clob.py`.
+2. **Golden vectors** — Table-driven tests: inputs `(no_ask, cfg)` → expected submitted clamp and fill accept/reject.
+3. **CI** — Runs those tests **network-off**.
+
+### 5.4 Live-only paths: balance recovery and order errors
+
+**Risk:** Live **`_recover_balance_fill`** can record a position when the REST path errored but conditional balance shows shares; a naive sim never models this → systematic divergence.
+
+**Mitigations:**
+
+1. **`sim_balance_recovery: bool`** in run manifest (default **`false`** for v1). When `false`, `run_manifest.json` lists **`live_path_excluded: ["balance_recovery"]`**.
+2. Optional **v2 mode** — If `true`, after a simulated “order error” draw, read a **synthetic** conditional balance from Tier B or from a **recorded** live ledger export (out of scope until data exists).
+
+### 5.5 Pending entries, backoff, and poll cadence
+
+**Risk:** Live uses **retry/backoff** and monotonic “next attempt” times; a naive per-bar scan does not match **when** the next evaluation happens relative to `t_first`.
+
+**Mitigations:**
+
+1. **`scheduling_mode`** in manifest: **`coarse_bar`** (evaluate only on history bars after `t_first` eligibility — fast, documented approximation) vs **`strategy_loop`** (reuse or mirror pending-entry scheduling rules from the real loop — higher fidelity, more code).
+2. Default v1: **`coarse_bar`** with **`scheduling_mode`** explicit in output.
+
+### 5.6 Multi-market portfolio ordering
+
+**Risk:** Live uses **concurrent** work (`asyncio.gather`-style); a **serial** backtest changes who gets cash first → different entries and PnL.
+
+**Mitigations:**
+
+1. **`portfolio_sequencing`** required in every run: **`serial_by_slug`** | **`time_ordered_global`** (merge all markets’ \(\mathcal{T}\) into one timeline, tie-break by slug) | **`single_market_only`**.
+2. **Default v1:** **`single_market_only`** enforced in CLI unless operator sets another mode (prevents silent wrong portfolio stats).
+3. Document mapping to live: if you later add **`parallel_async`**, it must be **stochastic or seeded** (multiple runs) unless you capture a live event log.
+
+### 5.7 Algorithm (single market, single config)
 
 ```
 INPUT: sorted points [(t_i, p_i)], cfg, resolution outcome
@@ -176,14 +224,24 @@ for each (t_i, p_i) in order:
     if not predicate(no_ask, cfg, wallet_state):
         continue
     t_first = t_i
-    simulate fill at no_ask (or submitted price rule)
+    fill_price = shared_fill_rule(no_ask, cfg)  # §5.3
     update wallet_state
-    break outer loops per market entry rule
+    break per market entry rule
 
 at resolution: apply binary payoff to NO position
 ```
 
-Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or priority order — match live **async gather** behavior or document simplified **serial** mode).
+Multi-market: apply **`portfolio_sequencing`** (§5.6).
+
+### 5.8 Drawdown and risk caps
+
+**Risk:** Skipping drawdown hides kill-switch behavior; enabling it without mark-to-market is misleading.
+
+**Mitigations:**
+
+1. **`drawdown_mode`** in manifest: **`step_mtm`** (revalue open NO at each evaluation using history `p` + same spread model — **proxy** drawdown) | **`off`**.
+2. When **`off`**, `run_manifest.json` includes **`drawdown_mode: off`** and **`risk_metrics_partial: true`** so downstream tools know DD stats are absent by choice.
+3. **Exposure caps** from `NothingHappensConfig` / `RiskConfig` must either be simulated each step or listed under **`live_path_excluded`**.
 
 ---
 
@@ -195,24 +253,32 @@ Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or
 | --- | --- | --- |
 | `slug` | string | Human id |
 | `no_token_id` | string | CLOB token id for NO outcome |
-| `yes_token_id` | string optional | If needed for cross-checks |
+| `yes_token_id` | string optional | Cross-checks / YES history |
 | `condition_id` | string | On-chain / Gamma id |
-| `t_open` | int64 unix | **Definition documented** — e.g. Gamma `start` or first history point |
+| **`t_open`** | int64 unix | **Frozen policy per manifest** — e.g. Gamma `startDate` **or** first `t` in `prices-history` **or** first CLOB listing time; pick **one** and set **`t_open_source`** on the manifest file. |
+| **`t_open_source`** | string enum | `gamma_start` \| `first_history_bar` \| `clob_listing` \| … |
 | `t_end` | int64 unix | Resolution / close horizon for ETA filters |
-| `outcome_no_wins` | bool or enum | Resolved: did NO win? (from Gamma / curated) |
+| **`outcome_no_wins`** | bool or enum | Resolved: did NO win? |
+| **`resolution_status`** | string | `resolved` \| `void` \| `disputed` \| `unknown` — **void/disputed** markets use an explicit PnL rule (e.g. exclude from PnL sum, or mark `pnl=null` with reason). |
+| **`gamma_snapshot_utc`** | string ISO | When outcomes / metadata were read (reproducibility). |
 | `ingest_version` | string | Manifest schema version |
+| **`coverage_class`** | string | `ok` \| `empty_history` \| `partial_range` \| `below_min_bars` |
+| **`bar_count`** | int | Points ingested for NO token |
+| **`min_bars_threshold`** | int optional | Ingest parameter for quality gate |
+
+**Join validation:** On ingest, assert **`condition_id` + `slug`** consistency with Gamma row; reject or flag rows that fail.
 
 ### 6.2 Price series (`prices/{token_id}.parquet` or partitioned hive)
 
 | Column | Type | Description |
 | --- | --- | --- |
 | `token_id` | string | NO token |
-| `t` | int64 | Unix seconds (match API) |
+| `t` | int64 | Unix seconds (**validate** unit: reject if values look like ms — §6.4) |
 | `p` | float | Price from API |
 | `ingest_run_id` | string | Batch id |
 | `source` | string | `clob_prices_history` |
 
-**Primary key:** `(token_id, t)` deduplicated on ingest.
+**Primary key:** `(token_id, t)` deduplicated on ingest. **Invariant:** `t` strictly increasing per file after sort.
 
 ### 6.3 Ingest metadata table
 
@@ -220,8 +286,32 @@ Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or
 | --- | --- |
 | `ingest_run_id`, `started_at`, `completed_at` | Audit |
 | `params` (JSON) | `startTs`, `endTs`, `interval`, `fidelity` used |
-| `markets_requested`, `markets_ok`, `markets_empty` | Health |
+| `markets_requested`, `markets_ok`, `markets_empty`, `markets_partial` | Health |
+| `tier_a_calibration_stats` | Optional link or embed from §2.4 |
 | `error_log_uri` | Debugging |
+| **`status`** | `complete` \| `partial` \| `failed` |
+
+### 6.4 Archive validation (`backtest validate` command)
+
+**Risk:** Partial/corrupt archives trusted by the runner.
+
+**Mitigations — implement a **validate** subcommand** that:
+
+1. Checks **manifest ↔ files** (every `no_token_id` has a series file when `coverage_class` expects it).
+2. Asserts **monotonic `t`**, **no duplicate `(token_id,t)`**, and **reasonable unix range** (catches ms vs s).
+3. Computes **min/max `t` per token** vs requested window; flags **`partial_range`**.
+4. Emits **`validate_report.json`** with exit code non-zero if **hard** gates fail.
+
+**Runner behavior:** `run` may accept `--require-validated-manifest` to refuse a stale or unvalidated ingest.
+
+### 6.5 Survivorship and universe bias
+
+**Risk:** Only including **resolved winners** or post-hoc liquid markets inflates measured edge.
+
+**Mitigations:**
+
+1. Manifest field **`universe_rule`** (text or enum): e.g. `all_listed_asof_YYYY-MM-DD`, `resolved_only`, `custom_sql`.
+2. **`summary.json`** includes **`universe_rule`** and **count by `resolution_status`** so aggregates are comparable across runs.
 
 ---
 
@@ -229,14 +319,15 @@ Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or
 
 ### 7.1 Phases of one ingest run
 
-1. **Load universe** → list of `(no_token_id, start_ts, end_ts)` per market (clamp to market life).
-2. **Deduplicate** tokens if multiple slugs share token (rare; log).
-3. **Fetch loop:**
+1. **Acquire global ingest lock** (§7.4) — refuse or queue second concurrent megajob.
+2. **Load universe** → list of `(no_token_id, start_ts, end_ts)` per market (clamp to market life).
+3. **Deduplicate** tokens if multiple slugs share token (rare; log).
+4. **Fetch loop:**
    - Respect **global token bucket** (e.g. target ≤800 `/prices-history` per 10s to stay under 1k with jitter).
-   - **Exponential backoff** on 5xx / obvious throttle.
-   - **Resume:** skip tokens already in archive with same `(ingest_params_hash)` unless `--force`.
-4. **Write** Parquet atomically (temp file + rename).
-5. **Record** manifest row counts and hashes.
+   - **Exponential backoff** on 5xx / obvious throttle; **jitter** on retries.
+   - **Resume:** per-token checkpoint — skip tokens already complete for same **`ingest_params_hash`** unless `--force`.
+5. **Write** Parquet **atomically** (temp file + rename).
+6. **Record** manifest row counts, hashes, **`coverage_class`**, and **`status`**.
 
 ### 7.2 Query parameters (defaults for year-scale pull)
 
@@ -247,10 +338,19 @@ Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or
 | `interval` | `max` or `all` then slice locally | Measure response size |
 | `fidelity` | `1` (minute) unless API allows finer | Matches docs |
 
-### 7.3 Idempotency
+### 7.3 Idempotency and config identity
 
-- **`ingest_params_hash = hash(token_id, startTs, endTs, interval, fidelity)`** stored per series file.
+- **`ingest_params_hash = hash(canonical_json(token_id, startTs, endTs, interval, fidelity))`** — floats must be **quantized** or **stringified** in canonical form so hashes are stable.
 - Re-run ingest: **no duplicate rows** (merge on `t`).
+
+### 7.4 Global lock, checkpoint, disk, and Cloudflare
+
+| Risk | Mitigation |
+| --- | --- |
+| Two ingests thrash API / corrupt writes | **Single global ingest lock** (file lock or DB); queued starts. |
+| Job dies mid-run | **Per-token checkpoint** file or table row; resume from last complete token. |
+| Disk exhaustion | **Pre-flight estimate** (tokens × observed bytes/sample); optional **`--max-gb`** abort. |
+| Cloudflare slowdown (no 429) | **Metrics:** rolling req/s, latency p95; **adaptive throttle** to stay under measured ceiling. |
 
 ---
 
@@ -259,22 +359,35 @@ Multi-market v2 adds **portfolio sequencing** (same timestamps across markets or
 ### 8.1 Inputs
 
 - **Archive path** (local or mounted).
-- **`NothingHappensConfig`** (or diff from baseline for A/B).
+- **`NothingHappensConfig`** (or diff from baseline for A/B) — serialized with **canonical JSON** for hashing.
 - **Tier** (`A` | `B`).
 - **Discretization policy** (P1/P2/P3).
+- **`t_open` policy** — must match manifest’s **`t_open_source`** or runner errors.
 - **Initial cash** (float).
-- **RiskConfig** subset (exposure caps; drawdown optional off in v1).
+- **`portfolio_sequencing`** (§5.6).
+- **`scheduling_mode`** (§5.5).
+- **`drawdown_mode`** (§5.8).
+- **`sim_balance_recovery`** (§5.4).
 
 ### 8.2 Outputs
 
 | Artifact | Format |
 | --- | --- |
-| `summary.json` | Aggregates: markets scanned, entries, win rate, total PnL proxy, max DD |
-| `per_market.parquet` | `slug`, `t_first`, `entered`, `fill_price`, `pnl`, `reason_skip` |
+| `summary.json` | Aggregates: markets scanned, **entries**, **excluded_empty**, **excluded_partial**, win rate, total PnL, max DD (if mode on), **`universe_rule`**, fidelity metadata |
+| `per_market.parquet` | `slug`, `t_first`, `entered`, `fill_price`, `pnl`, `reason_skip`, `coverage_class` |
 | `equity_curve.csv` | Optional if multi-step portfolio sim |
-| `run_manifest.json` | Config hash, archive hash, git commit, tier |
+| `run_manifest.json` | Config hash, archive hash, git commit, tier, **sequencing**, **scheduling_mode**, **drawdown_mode**, **`live_path_excluded`**, **`execution_fidelity`** |
 
-### 8.3 CLI (illustrative)
+### 8.3 Quality gates (empty / sparse history)
+
+**Risk:** Silent drop of most universe → misleading aggregates.
+
+**Mitigations:**
+
+1. **`--min-markets-with-data`** and **`--min-bars-per-market`** — abort if unmet.
+2. **`summary.json`** always includes **`markets_total`**, **`markets_with_entry`**, **`markets_skipped_reason_counts`**.
+
+### 8.4 CLI (illustrative)
 
 ```text
 python -m bot.backtest run \
@@ -282,14 +395,20 @@ python -m bot.backtest run \
   --universe ./universe.parquet \
   --config-json ./backtest_cfg.json \
   --tier A \
+  --portfolio-sequencing single_market_only \
   --out ./runs/run_001
 ```
 
-### 8.4 Dashboard integration (later)
+```text
+python -m bot.backtest validate --archive ./var/backtest/v2026-04
+```
+
+### 8.5 Dashboard integration (later)
 
 - **POST /api/backtest** accepts **config diff** + **dataset id** → returns **job id**.
 - Worker reads **only archive**; **never** loops Polymarket per slider tick.
 - **Global limit:** e.g. **N concurrent jobs**, **M runs per user per hour**.
+- **`ENFORCE_LOCAL_ONLY=1`** in deployment: network fallback **disabled** (no accidental hammering).
 
 ---
 
@@ -301,10 +420,10 @@ Even with an archive, some routes hit the network. Define **hard caps**:
 | --- | --- | --- |
 | `ingest.start` | 1 global + queue | Avoid parallel megajobs |
 | `ingest.token` | ≤800 req/10s internal throttle | Stay under Polymarket 1k/10s |
-| `cache.refresh_market` | e.g. 10/min per user | Abuse prevention |
-| `backtest.run` (network fallback) | **0** in prod v1 | Force local-only |
+| `cache.refresh_market` | e.g. 10/min per user | Keep refresh from dominating CLOB budget |
+| `backtest.run` (network fallback) | **0** when `ENFORCE_LOCAL_ONLY` | Deterministic local runs |
 
-Expose **`429`** with **`Retry-After`** from app when user triggers too many refresh operations.
+Expose **`429`** with **`Retry-After`** from app when internal quota exceeded.
 
 ---
 
@@ -314,7 +433,7 @@ Expose **`429`** with **`Retry-After`** from app when user triggers too many ref
 | --- | --- | --- |
 | **Vendor L2** | [PolymarketData](https://www.polymarketdata.co/polymarket-order-book-data) (1m) | **Tier B** — minute snapshots, not sub-minute. |
 | **On-chain indexers** | Goldsky, The Graph, Envio, Dune | **Trades / settlement**, not off-chain CLOB resting book. |
-| **Forward capture** | CLOB WebSocket `book` / `best_bid_ask` | **Build your own** archive from `t_open` if product needs sub-minute **going forward**. |
+| **Forward capture** | CLOB WebSocket `book` / `best_bid_ask` | **Build your own** archive from `t_open` for sub-minute **going forward**. |
 
 ---
 
@@ -325,32 +444,36 @@ Expose **`429`** with **`Retry-After`** from app when user triggers too many ref
 | Task | Output |
 | --- | --- |
 | Fetch `prices-history` for 5 known NO tokens | Script in `scripts/` |
-| Document `{t,p}` vs live `/book` best ask | Markdown appendix |
+| **Calibration** — document `{t,p}` vs live `/book` NO best ask (§2.4) | JSON stats + short appendix in repo |
 | Implement `spread_model_v0` | Constant half-tick |
 | Compute `t_first` on paper for 1 config | Notebook or unit test |
+| **Clock check** — confirm `t` is seconds | Assert in spike |
 
-**Exit:** Go/no-go on Tier A credibility.
+**Exit:** Go/no-go on Tier A **with recorded bias stats**; else Tier B scope.
 
 ### Phase 1 — Archive + local scan
 
 | Task | Output |
 | --- | --- |
-| Parquet writers + manifest | `bot/backtest/` module |
-| Ingest CLI with throttle | `scripts/backtest_ingest.py` |
-| Pure function `first_executable_moment(series, cfg)` | Tested |
-| Golden-file test on 3 markets | CI |
+| Parquet writers + manifest (with **`coverage_class`**, **`t_open_source`**) | `bot/backtest/` module |
+| Ingest CLI with throttle + checkpoint + lock | `scripts/backtest_ingest.py` |
+| **`validate`** command (§6.4) | `bot/backtest/validate.py` |
+| Pure function `first_executable_moment(series, cfg)` + **§5.3 shared fill** | Tested |
+| Golden-file test on 3 markets + **network-off CI** | CI |
+| **Acceptance:** hand-checked **`t_first`** for ≥1 market on P1 and P2 | Doc table in test data README |
 
-**Exit:** One-command ingest + one-command report offline.
+**Exit:** One-command ingest + validate + offline report; quality gates enforced.
 
 ### Phase 2 — Portfolio + parity knobs
 
 | Task | Output |
 | --- | --- |
-| Multi-market serial or documented parallel policy | Config flag |
-| Map ETA / max position caps | Match `NothingHappensConfig` fields |
-| Resolution PnL | Gamma outcome join |
+| **`portfolio_sequencing`** modes (§5.6) | Config flags |
+| Map ETA / max position caps or list under **`live_path_excluded`** | Manifest |
+| Resolution PnL with **`resolution_status`** (void/disputed) | Join + tests |
+| Optional **`scheduling_mode=strategy_loop`** spike | If needed |
 
-**Exit:** Summary metrics within sanity bounds on fixture universe.
+**Exit:** Summary metrics on fixture universe; multi-market only in **`time_ordered_global`** or documented mode.
 
 ### Phase 3 — Dashboard + quotas
 
@@ -360,35 +483,45 @@ Expose **`429`** with **`Retry-After`** from app when user triggers too many ref
 | User / global quotas | Middleware |
 | Dataset versioning in UI | Dropdown |
 
-**Exit:** Non-engineer can run A/B on cached year.
+**Exit:** A/B on cached year from UI without per-tick network.
 
 ### Phase 4 — Tier B adapter (optional)
 
 | Task | Output |
 | --- | --- |
 | PolymarketData (or chosen vendor) client | Pluggable `HistoricalExchange` |
-| Comparison report Tier A vs B | `compare.html` |
+| Comparison report Tier A vs B | `compare.html` or notebook |
 
 ---
 
-## 12. Risks (expanded)
+## 12. Engineering risks and mitigations (checklist)
 
-| Risk | Impact | Mitigation |
+| # | Risk | Mitigation (where defined) |
 | --- | --- | --- |
-| Empty `prices-history` | Missing markets | Manifest `markets_empty`; exclude from metrics; optional imputation **off** |
-| Lookahead in universe | Inflated edge | Frozen manifest at research date; document |
-| `p` ≠ tradable NO ask | Wrong `t_first` | Tier B or calibration sweep; disclose Tier A assumption |
-| Ingest job failure mid-run | Partial archive | Resume tokens; manifest `status=partial` |
-| User expects live parity | Trust loss | Run banner: tier + spread model version |
+| 1 | `p` ≠ live NO best ask | §2.4 calibration; Tier B for execution-grade; `execution_fidelity` in manifest |
+| 2 | Empty / partial history | `coverage_class`, §8.3 gates, `markets_skipped_reason_counts` |
+| 3 | Ambiguous `t_open` | §6.1 `t_open` + `t_open_source`; runner must match; Phase 1 golden tests |
+| 4 | Multi-market cash ordering | §5.6 `portfolio_sequencing`; default `single_market_only` |
+| 5 | Drawdown / kill-switch blind spots | §5.8 `drawdown_mode` + `risk_metrics_partial` |
+| 6 | Slippage / price-cap drift | §5.3 shared pure function + golden vectors |
+| 7 | Balance recovery divergence | §5.4 `sim_balance_recovery` + `live_path_excluded` |
+| 8 | Pending / backoff vs coarse bars | §5.5 `scheduling_mode` |
+| 9 | Ingest scale / thundering herd | §7.4 lock, checkpoint, adaptive throttle |
+| 10 | Partial corrupt archive | §6.4 validate; `--require-validated-manifest` |
+| 11 | Resolution join wrong | §6.1 join validation + `resolution_status` |
+| 12 | Survivorship bias | §6.5 `universe_rule` + counts by status |
+| 13 | Config hash instability | §7.3 canonical JSON + float policy |
+| 14 | ms vs s time bugs | §6.2, §6.4 validation |
+| 15 | Dashboard / shared host abuse | §8.5 `ENFORCE_LOCAL_ONLY`, §9 quotas, job timeouts |
+| 16 | Weak acceptance criteria | §11 Phase 0–1 exit criteria + hand-checked `t_first` |
 
 ---
 
-## 13. Open decisions (checklist)
+## 13. Open decisions (residual checklist)
 
-- [ ] **`t_open` definition** — Gamma field vs first price point.
-- [ ] **Portfolio cross-market ordering** — serial vs parallel vs simplified.
-- [ ] **Fees** — include category fee table or ignore in v1.
-- [ ] **neg-risk / multi-outcome** — explicitly excluded or flagged.
+- [ ] **Default `t_open_source`** — pick `gamma_start` vs `first_history_bar` for first shipped manifest (then freeze).
+- [ ] **Fees** — include category fee table in PnL or `live_path_excluded: ["fees"]`.
+- [ ] **neg-risk / multi-outcome** — explicitly excluded or flagged in manifest.
 
 ---
 
@@ -407,3 +540,4 @@ Expose **`429`** with **`Retry-After`** from app when user triggers too many ref
 | --- | --- |
 | Initial | High-level proposal |
 | 2026-04-13 | Expanded: first-executable definition, archive-first vs dial API, rate limits, schema, ingest/backtest specs, quotas, phased tasks |
+| 2026-04-13 | Risk mitigations: calibration, coverage gates, `t_open` freeze, sequencing modes, shared fill, recovery/scheduling/DD flags, validate command, survivorship, parity matrix, removed non-engineering/legal framing |
