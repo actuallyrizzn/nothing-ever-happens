@@ -49,6 +49,9 @@ All keys are prefixed `PM_NH_` and map to `strategies.nothing_happens` in `confi
 
 | Field | Env key | Typical role |
 | --- | --- | --- |
+| Max end date (months) | `PM_NH_MAX_END_DATE_MONTHS` | Discovery horizon toward market end (30-day months). **1–120**. |
+| Min resolution ETA (sec) | `PM_NH_MIN_RESOLUTION_ETA_SEC` | Drop markets that resolve sooner than this; **0** = off. |
+| Max resolution ETA (sec) | `PM_NH_MAX_RESOLUTION_ETA_SEC` | Drop markets that resolve later than this; **0** = off (discovery window still applies). |
 | Market refresh (sec) | `PM_NH_MARKET_REFRESH_INTERVAL_SEC` | How often to pull candidate markets from Gamma. **Minimum 60** enforced. |
 | Price poll (sec) | `PM_NH_PRICE_POLL_INTERVAL_SEC` | Order book / mid polling cadence. **Minimum 15**. |
 | Position sync (sec) | `PM_NH_POSITION_SYNC_INTERVAL_SEC` | Refresh open positions and cash. **Minimum 15**. |

@@ -157,6 +157,30 @@ FIELDS: tuple[SettingField, ...] = (
         value_hint="Optional short tag stored on ledger rows; may be empty.",
     ),
     SettingField(
+        "PM_NH_MAX_END_DATE_MONTHS",
+        "Max end date (months)",
+        "Strategy",
+        "int",
+        "Rough horizon when pulling markets from Gamma (30-day months).",
+        value_hint="Integer months; markets ending farther out are ignored during refresh.",
+    ),
+    SettingField(
+        "PM_NH_MIN_RESOLUTION_ETA_SEC",
+        "Min resolution ETA (sec)",
+        "Strategy",
+        "int",
+        "0 = no minimum time-to-resolution filter.",
+        value_hint="Skip markets that resolve sooner than this many seconds from now.",
+    ),
+    SettingField(
+        "PM_NH_MAX_RESOLUTION_ETA_SEC",
+        "Max resolution ETA (sec)",
+        "Strategy",
+        "int",
+        "0 = no extra maximum (discovery window still applies).",
+        value_hint="Skip markets that resolve later than this many seconds from now.",
+    ),
+    SettingField(
         "PM_NH_MARKET_REFRESH_INTERVAL_SEC",
         "Market refresh (sec)",
         "Strategy",
@@ -355,6 +379,9 @@ def _defaults_from_config_json(cfg: dict[str, Any]) -> dict[str, str]:
         if strat.get(k) is not None:
             out[name] = str(float(strat[k]))
 
+    i("PM_NH_MAX_END_DATE_MONTHS", "max_end_date_months")
+    i("PM_NH_MIN_RESOLUTION_ETA_SEC", "min_resolution_eta_sec")
+    i("PM_NH_MAX_RESOLUTION_ETA_SEC", "max_resolution_eta_sec")
     i("PM_NH_MARKET_REFRESH_INTERVAL_SEC", "market_refresh_interval_sec")
     i("PM_NH_PRICE_POLL_INTERVAL_SEC", "price_poll_interval_sec")
     i("PM_NH_POSITION_SYNC_INTERVAL_SEC", "position_sync_interval_sec")
@@ -400,6 +427,9 @@ def _builtin_seed_defaults() -> dict[str, str]:
     base.setdefault("PM_RISK_KILL_COOLDOWN_SEC", "900")
     base.setdefault("PM_RISK_DRAWDOWN_ARM_AFTER_SEC", "1800")
     base.setdefault("PM_RISK_DRAWDOWN_MIN_FRESH_OBS", "3")
+    base.setdefault("PM_NH_MAX_END_DATE_MONTHS", "3")
+    base.setdefault("PM_NH_MIN_RESOLUTION_ETA_SEC", "0")
+    base.setdefault("PM_NH_MAX_RESOLUTION_ETA_SEC", "0")
     return base
 
 
@@ -547,6 +577,9 @@ def validate_all_settings(data: dict[str, str]) -> tuple[bool, str]:
             data.get("PM_NH_SHUTDOWN_ON_MAX_NEW_POSITIONS", "false")
         ),
         "redeemer_interval_sec": int(data.get("PM_NH_REDEEMER_INTERVAL_SEC", "1800")),
+        "max_end_date_months": int(data.get("PM_NH_MAX_END_DATE_MONTHS", "3")),
+        "min_resolution_eta_sec": int(data.get("PM_NH_MIN_RESOLUTION_ETA_SEC", "0")),
+        "max_resolution_eta_sec": int(data.get("PM_NH_MAX_RESOLUTION_ETA_SEC", "0")),
     }
     try:
         strat = NothingHappensConfig(**strat_map)

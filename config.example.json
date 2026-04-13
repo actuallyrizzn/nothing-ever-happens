@@ -6,6 +6,9 @@
   },
   "strategies": {
     "nothing_happens": {
+      "max_end_date_months": 3,
+      "min_resolution_eta_sec": 0,
+      "max_resolution_eta_sec": 0,
       "market_refresh_interval_sec": 600,
       "price_poll_interval_sec": 60,
       "position_sync_interval_sec": 60,

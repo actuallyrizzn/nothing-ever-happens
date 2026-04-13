@@ -368,6 +368,16 @@ class NothingHappensRuntime:
             return None
         return min(capacities)
 
+    def _market_passes_resolution_eta(self, market: StandaloneMarket, now_ts: float) -> bool:
+        if market.end_ts <= now_ts:
+            return False
+        eta_sec = market.end_ts - now_ts
+        if self.cfg.min_resolution_eta_sec > 0 and eta_sec < self.cfg.min_resolution_eta_sec:
+            return False
+        if self.cfg.max_resolution_eta_sec > 0 and eta_sec > self.cfg.max_resolution_eta_sec:
+            return False
+        return True
+
     def _eligible_markets(self) -> list[StandaloneMarket]:
         position_slugs = set(self._positions_by_slug)
         pending_slugs = set(self._pending_entries_by_slug)
@@ -379,7 +389,7 @@ class NothingHappensRuntime:
             if market.slug not in position_slugs
             and market.slug not in pending_slugs
             and market.slug not in blocked_slugs
-            and market.end_ts > now_ts
+            and self._market_passes_resolution_eta(market, now_ts)
         ]
 
     def _in_range_market_count(self, eligible_markets: list[StandaloneMarket]) -> int:
@@ -449,7 +459,10 @@ class NothingHappensRuntime:
 
     async def _refresh_markets(self) -> None:
         try:
-            markets = await fetch_candidate_markets(self.session)
+            markets = await fetch_candidate_markets(
+                self.session,
+                max_end_date_months=self.cfg.max_end_date_months,
+            )
         except Exception as exc:
             self._last_error = f"markets_refresh_failed: {exc}"
             logger.warning("nothing_happens_markets_refresh_failed: %s", exc)
@@ -679,7 +692,8 @@ class NothingHappensRuntime:
         market = self._markets_by_slug.get(slug, pending.market)
         pending.market = market
 
-        if market.end_ts <= time.time():
+        now_ts = time.time()
+        if not self._market_passes_resolution_eta(market, now_ts):
             self._pending_entries_by_slug.pop(slug, None)
             self._schedule_backoff(slug, failed=False)
             return False

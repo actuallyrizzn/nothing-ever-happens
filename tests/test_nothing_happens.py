@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -192,6 +193,41 @@ def _make_runtime(
         recovery_coordinator=recovery_coordinator,
         wallet_address=wallet_address,
     )
+
+
+def test_eligible_markets_respect_resolution_eta_window() -> None:
+    day = 86400.0
+    cfg = NothingHappensConfig(
+        min_resolution_eta_sec=int(10 * day),
+        max_resolution_eta_sec=int(40 * day),
+    )
+    rt = _make_runtime(cfg=cfg)
+    now = time.time()
+
+    def market(slug: str, end_offset_sec: float) -> StandaloneMarket:
+        return StandaloneMarket(
+            question="q",
+            slug=slug,
+            condition_id="c",
+            yes_token_id="y",
+            no_token_id="n",
+            yes_price=0.5,
+            no_price=0.5,
+            volume=1.0,
+            liquidity=1.0,
+            min_order_size=1.0,
+            end_date="",
+            end_ts=now + end_offset_sec,
+            category="",
+            event_slug="",
+        )
+
+    rt._markets_by_slug = {
+        "soon": market("soon", 1 * day),
+        "mid": market("mid", 20 * day),
+        "late": market("late", 100 * day),
+    }
+    assert {m.slug for m in rt._eligible_markets()} == {"mid"}
 
 
 def test_build_standalone_market_maps_yes_and_no_tokens() -> None:

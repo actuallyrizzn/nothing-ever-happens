@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from bot.config import ExchangeConfig
+from bot.config import ExchangeConfig, NothingHappensConfig, _validate_nothing_happens_config
 from bot.exchange.paper import PaperExchangeClient
 from bot.main import _build_exchange, _resolve_live_wallet_address, _validate_live_runtime
 
@@ -63,3 +63,13 @@ def test_resolve_live_wallet_address_uses_signer_for_direct_eoa():
         wallet_address = _resolve_live_wallet_address(exchange)
     assert wallet_address == "0xsigner"
     from_key.assert_called_once_with("0xabc")
+
+
+def test_validate_nothing_happens_config_rejects_inverted_eta_window() -> None:
+    with pytest.raises(ValueError, match="max_resolution_eta_sec"):
+        _validate_nothing_happens_config(
+            NothingHappensConfig(
+                min_resolution_eta_sec=100,
+                max_resolution_eta_sec=50,
+            )
+        )

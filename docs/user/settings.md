@@ -35,7 +35,10 @@ Clearing a **non-secret** field and saving usually means “go back to the defau
 
 ## Strategy {: #strategy }
 
-These control **how often** the bot looks at markets and prices, **how big** each trade is, **how high** a price you are willing to pay for a “No” share, **retries**, and **limits** on how many new positions to open.
+These control **how often** the bot looks at markets and prices, **how big** each trade is, **how high** a price you are willing to pay for a “No” share, **retries**, **limits** on how many new positions to open, and **which markets count as candidates** by resolution timing.
+
+- **Max end date (months)** — how far out the bot searches for markets (calendar-style horizon).  
+- **Min / max resolution ETA** — optional filters in **seconds** until the market ends: skip markets that resolve too soon, too late, or both. **0** means “no limit” on that side.
 
 **Units (read carefully):**
 

@@ -134,6 +134,11 @@ class NothingHappensConfig:
     max_new_positions: int = -1
     shutdown_on_max_new_positions: bool = False
     redeemer_interval_sec: int = 1800
+    # Discovery: Gamma pull horizon (30-day months, same as standalone_markets).
+    max_end_date_months: int = 3
+    # Eligibility: seconds until market end (0 = no bound on that side).
+    min_resolution_eta_sec: int = 0
+    max_resolution_eta_sec: int = 0
 
 
 def load_nothing_happens_config() -> tuple[ExchangeConfig, NothingHappensConfig]:
@@ -230,6 +235,18 @@ def _load_nothing_happens_config(
             "PM_NH_REDEEMER_INTERVAL_SEC",
             int(strat.get("redeemer_interval_sec", 1800)),
         ),
+        max_end_date_months=_env_int(
+            "PM_NH_MAX_END_DATE_MONTHS",
+            int(strat.get("max_end_date_months", 3)),
+        ),
+        min_resolution_eta_sec=_env_int(
+            "PM_NH_MIN_RESOLUTION_ETA_SEC",
+            int(strat.get("min_resolution_eta_sec", 0)),
+        ),
+        max_resolution_eta_sec=_env_int(
+            "PM_NH_MAX_RESOLUTION_ETA_SEC",
+            int(strat.get("max_resolution_eta_sec", 0)),
+        ),
     )
     _validate_nothing_happens_config(strategy)
     return exchange, strategy
@@ -278,3 +295,23 @@ def _validate_nothing_happens_config(cfg: NothingHappensConfig) -> None:
         raise ValueError(f"max_new_positions must be >= -1, got {cfg.max_new_positions}")
     if cfg.redeemer_interval_sec < 60:
         raise ValueError(f"redeemer_interval_sec must be >= 60, got {cfg.redeemer_interval_sec}")
+    if cfg.max_end_date_months < 1 or cfg.max_end_date_months > 120:
+        raise ValueError(
+            f"max_end_date_months must be in [1, 120], got {cfg.max_end_date_months}"
+        )
+    if cfg.min_resolution_eta_sec < 0:
+        raise ValueError(
+            f"min_resolution_eta_sec must be >= 0, got {cfg.min_resolution_eta_sec}"
+        )
+    if cfg.max_resolution_eta_sec < 0:
+        raise ValueError(
+            f"max_resolution_eta_sec must be >= 0, got {cfg.max_resolution_eta_sec}"
+        )
+    if (
+        cfg.max_resolution_eta_sec > 0
+        and cfg.min_resolution_eta_sec > 0
+        and cfg.max_resolution_eta_sec < cfg.min_resolution_eta_sec
+    ):
+        raise ValueError(
+            "max_resolution_eta_sec must be >= min_resolution_eta_sec when both are non-zero"
+        )

@@ -6,6 +6,8 @@ Validation rules match `bot/config.py` (`_validate_nothing_happens_config`).
 
 ## Timing & cadence {: #timing }
 
+- **Max end date (months)** — how far out Gamma discovery looks (30-day months). **1–120**.  
+- **Min / max resolution ETA (seconds)** — optional bounds on time-until-market-end for **eligibility** (not yet held, not pending). **0** disables that side. If both are set, max must be ≥ min.  
 - **Market refresh** — pulls standalone markets from Gamma; larger values reduce API load. Minimum **60** seconds.  
 - **Price poll** — how often eligible markets are re-priced. Minimum **15** seconds.  
 - **Position sync** — refreshes cash and open positions from the exchange / data API. Minimum **15** seconds.  
