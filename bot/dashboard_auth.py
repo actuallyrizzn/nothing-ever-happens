@@ -1,7 +1,8 @@
-"""Dashboard admin auth — SQLite users, bcrypt, signed session cookies, CSRF.
+"""Dashboard admin auth — Postgres (via SQLAlchemy) users, bcrypt, signed sessions.
 
-Patterns align with Decision Science Corp PHP panels (session login, CSRF on POST,
-user CRUD, slate styling in static HTML).
+Multi-user admin accounts live in the same database pattern as the rest of the bot
+(`DATABASE_URL` / `create_tables`). Optional `DASHBOARD_AUTH_DATABASE_URL` overrides
+which database holds `neh_dashboard_admin_users`.
 """
 
 from __future__ import annotations
@@ -14,8 +15,6 @@ import logging
 import os
 import re
 import secrets
-import sqlite3
-import threading
 import time
 from dataclasses import dataclass
 from html import escape
@@ -23,6 +22,10 @@ from pathlib import Path
 from typing import Any
 
 import bcrypt
+import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
+
+from bot.db import create_engine, neh_dashboard_admin_users_table
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,18 @@ LOGIN_CSRF_COOKIE = "neh_login_csrf"
 SESSION_TTL_SEC = 7 * 24 * 3600
 BCRYPT_ROUNDS = 12
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
+
+
+def _normalize_database_url(url: str) -> str:
+    u = url.strip()
+    if u.startswith("postgres://"):
+        return u.replace("postgres://", "postgresql://", 1)
+    return u
+
+
+def _resolve_dashboard_database_url() -> str:
+    u = (os.getenv("DASHBOARD_AUTH_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
+    return _normalize_database_url(u)
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -50,15 +65,16 @@ class SessionPayload:
 
 
 class DashboardAuth:
-    """SQLite-backed admin users + HMAC-signed session tokens."""
+    """Postgres-backed admin users (via SQLAlchemy) + HMAC-signed session tokens."""
 
-    def __init__(self, secret: str, db_path: str) -> None:
+    def __init__(self, secret: str, database_url: str) -> None:
         if len(secret) < 32:
             raise ValueError("DASHBOARD_AUTH_SECRET must be at least 32 characters")
+        url = _normalize_database_url(database_url)
+        if not url:
+            raise ValueError("database_url is required for DashboardAuth")
         self._secret = secret.encode("utf-8")
-        self._db_path = str(Path(db_path).expanduser())
-        self._lock = threading.Lock()
-        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._engine = create_engine(url)
         self._init_db()
 
     @classmethod
@@ -66,39 +82,29 @@ class DashboardAuth:
         secret = (os.getenv("DASHBOARD_AUTH_SECRET") or "").strip()
         if not secret:
             return None
-        db_path = (os.getenv("DASHBOARD_AUTH_DB_PATH") or "dashboard_auth.sqlite").strip()
-        auth = cls(secret, db_path)
+        db_url = _resolve_dashboard_database_url()
+        if not db_url:
+            raise ValueError(
+                "DASHBOARD_AUTH_SECRET is set but no database URL was found. "
+                "Set DATABASE_URL (same as the bot) or DASHBOARD_AUTH_DATABASE_URL "
+                "so dashboard admin users can be stored in Postgres."
+            )
+        auth = cls(secret, db_url)
         auth.maybe_bootstrap_from_env()
         return auth
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        return conn
-
     def _init_db(self) -> None:
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS admin_users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-                    )
-                    """
-                )
-                conn.commit()
+        neh_dashboard_admin_users_table.create(self._engine, checkfirst=True)
 
     def user_count(self) -> int:
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute("SELECT COUNT(*) AS c FROM admin_users").fetchone()
-                return int(row["c"]) if row else 0
+        with self._engine.connect() as conn:
+            n = conn.execute(
+                sa.select(sa.func.count(neh_dashboard_admin_users_table.c.id))
+            ).scalar_one()
+            return int(n)
 
     def maybe_bootstrap_from_env(self) -> None:
-        """Create first user from env if DB is empty (one-shot VPS bootstrap)."""
+        """Create first user from env if table is empty (one-shot VPS bootstrap)."""
         if self.user_count() > 0:
             return
         u = (os.getenv("DASHBOARD_BOOTSTRAP_USERNAME") or "").strip()
@@ -123,26 +129,29 @@ class DashboardAuth:
         pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode(
             "ascii"
         )
-        with self._lock:
-            try:
-                with self._connect() as conn:
-                    conn.execute(
-                        "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
-                        (username, pw_hash),
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(
+                    neh_dashboard_admin_users_table.insert().values(
+                        username=username,
+                        password_hash=pw_hash,
                     )
-                    conn.commit()
-            except sqlite3.IntegrityError:
-                return {"success": False, "error": "Username may already exist."}
+                )
+                conn.commit()
+        except IntegrityError:
+            return {"success": False, "error": "Username may already exist."}
         return {"success": True, "error": None}
 
     def verify_login(self, username: str, password: str) -> dict[str, Any]:
         username = (username or "").strip()
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    "SELECT id, username, password_hash FROM admin_users WHERE username = ?",
-                    (username,),
-                ).fetchone()
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                sa.select(
+                    neh_dashboard_admin_users_table.c.id,
+                    neh_dashboard_admin_users_table.c.username,
+                    neh_dashboard_admin_users_table.c.password_hash,
+                ).where(neh_dashboard_admin_users_table.c.username == username)
+            ).mappings().first()
         if not row or not bcrypt.checkpw(
             password.encode("utf-8"), row["password_hash"].encode("ascii")
         ):
@@ -151,47 +160,67 @@ class DashboardAuth:
         return {"success": True, "user_id": int(row["id"]), "username": row["username"]}
 
     def list_users(self) -> list[dict[str, Any]]:
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    "SELECT id, username, created_at FROM admin_users ORDER BY username ASC"
-                ).fetchall()
-        return [dict(r) for r in rows]
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                sa.select(
+                    neh_dashboard_admin_users_table.c.id,
+                    neh_dashboard_admin_users_table.c.username,
+                    neh_dashboard_admin_users_table.c.created_at,
+                ).order_by(neh_dashboard_admin_users_table.c.username)
+            ).mappings().all()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            ca = r["created_at"]
+            out.append(
+                {
+                    "id": int(r["id"]),
+                    "username": r["username"],
+                    "created_at": ca.isoformat(sep=" ", timespec="seconds") if ca is not None else "",
+                }
+            )
+        return out
 
     def delete_user(self, user_id: int, current_user_id: int) -> dict[str, Any]:
         if user_id <= 0 or user_id == current_user_id:
             return {"success": False, "error": "Cannot delete this user."}
-        with self._lock:
-            with self._connect() as conn:
-                count = int(conn.execute("SELECT COUNT(*) FROM admin_users").fetchone()[0])
-                if count <= 1:
-                    return {"success": False, "error": "Cannot delete the last admin user."}
-                cur = conn.execute("DELETE FROM admin_users WHERE id = ?", (user_id,))
-                conn.commit()
-                if cur.rowcount == 0:
-                    return {"success": False, "error": "User not found."}
+        with self._engine.connect() as conn:
+            count = conn.execute(
+                sa.select(sa.func.count(neh_dashboard_admin_users_table.c.id))
+            ).scalar_one()
+            if int(count) <= 1:
+                return {"success": False, "error": "Cannot delete the last admin user."}
+            res = conn.execute(
+                sa.delete(neh_dashboard_admin_users_table).where(
+                    neh_dashboard_admin_users_table.c.id == user_id
+                )
+            )
+            conn.commit()
+            if res.rowcount == 0:
+                return {"success": False, "error": "User not found."}
         return {"success": True, "error": None}
 
     def change_password(self, user_id: int, current_password: str, new_password: str) -> dict[str, Any]:
         if len(new_password) < 8:
             return {"success": False, "error": "New password must be at least 8 characters."}
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    "SELECT password_hash FROM admin_users WHERE id = ?", (user_id,)
-                ).fetchone()
-                if not row or not bcrypt.checkpw(
-                    current_password.encode("utf-8"), row["password_hash"].encode("ascii")
-                ):
-                    return {"success": False, "error": "Current password is incorrect."}
-                pw_hash = bcrypt.hashpw(
-                    new_password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
-                ).decode("ascii")
-                conn.execute(
-                    "UPDATE admin_users SET password_hash = ? WHERE id = ?",
-                    (pw_hash, user_id),
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                sa.select(neh_dashboard_admin_users_table.c.password_hash).where(
+                    neh_dashboard_admin_users_table.c.id == user_id
                 )
-                conn.commit()
+            ).mappings().first()
+            if not row or not bcrypt.checkpw(
+                current_password.encode("utf-8"), row["password_hash"].encode("ascii")
+            ):
+                return {"success": False, "error": "Current password is incorrect."}
+            pw_hash = bcrypt.hashpw(
+                new_password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+            ).decode("ascii")
+            conn.execute(
+                sa.update(neh_dashboard_admin_users_table)
+                .where(neh_dashboard_admin_users_table.c.id == user_id)
+                .values(password_hash=pw_hash)
+            )
+            conn.commit()
         return {"success": True, "error": None}
 
     def sign_session(self, user_id: int) -> tuple[str, str]:

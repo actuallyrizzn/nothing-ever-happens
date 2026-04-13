@@ -122,9 +122,9 @@ class DashboardServer:
         notice = ""
         if self._auth.user_count() == 0:
             notice = (
-                "No admin users yet. Set DASHBOARD_BOOTSTRAP_USERNAME and "
-                "DASHBOARD_BOOTSTRAP_PASSWORD and restart, or run "
-                "python scripts/dashboard_create_user.py"
+                "No admin users yet. Ensure DATABASE_URL is set, then set "
+                "DASHBOARD_BOOTSTRAP_USERNAME and DASHBOARD_BOOTSTRAP_PASSWORD and restart, "
+                "or run python scripts/dashboard_create_user.py"
             )
         body = render_login_page(STATIC_DIR, csrf_token=login_csrf, notice=notice)
         resp = web.Response(text=body, content_type="text/html", charset="utf-8")

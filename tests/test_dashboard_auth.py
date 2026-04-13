@@ -34,8 +34,13 @@ def auth_secret() -> str:
     return "z" * 32
 
 
-def test_dashboard_auth_sign_roundtrip(auth_secret: str, tmp_path):
-    auth = DashboardAuth(auth_secret, str(tmp_path / "db.sqlite"))
+@pytest.fixture
+def auth_db_url(tmp_path) -> str:
+    return f"sqlite:///{tmp_path / 'neh_admin.db'}"
+
+
+def test_dashboard_auth_sign_roundtrip(auth_secret: str, auth_db_url: str):
+    auth = DashboardAuth(auth_secret, auth_db_url)
     token, _ = auth.sign_session(42)
     sess = auth.read_session(token)
     assert sess is not None
@@ -43,16 +48,16 @@ def test_dashboard_auth_sign_roundtrip(auth_secret: str, tmp_path):
     assert len(sess.csrf) == 64
 
 
-def test_dashboard_auth_create_user(auth_secret: str, tmp_path):
-    auth = DashboardAuth(auth_secret, str(tmp_path / "db.sqlite"))
+def test_dashboard_auth_create_user(auth_secret: str, auth_db_url: str):
+    auth = DashboardAuth(auth_secret, auth_db_url)
     assert auth.create_user("ok_user", "password123")["success"] is True
     assert auth.verify_login("ok_user", "password123")["success"] is True
     assert auth.verify_login("ok_user", "wrong")["success"] is False
 
 
 @pytest.mark.asyncio
-async def test_auth_redirects_root_to_login(auth_secret: str, tmp_path):
-    auth = DashboardAuth(auth_secret, str(tmp_path / "db.sqlite"))
+async def test_auth_redirects_root_to_login(auth_secret: str, auth_db_url: str):
+    auth = DashboardAuth(auth_secret, auth_db_url)
     auth.create_user("alice", "password123")
     server = DashboardServer(port=0, portfolio_state=_make_portfolio_state(), auth=auth)
     app = server.build_app()
@@ -75,8 +80,8 @@ async def test_auth_redirects_root_to_login(auth_secret: str, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_auth_login_and_access_dashboard(auth_secret: str, tmp_path):
-    auth = DashboardAuth(auth_secret, str(tmp_path / "db.sqlite"))
+async def test_auth_login_and_access_dashboard(auth_secret: str, auth_db_url: str):
+    auth = DashboardAuth(auth_secret, auth_db_url)
     auth.create_user("alice", "password123")
     server = DashboardServer(port=0, portfolio_state=_make_portfolio_state(), auth=auth)
     app = server.build_app()
@@ -118,8 +123,8 @@ async def test_auth_login_and_access_dashboard(auth_secret: str, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_auth_websocket_rejects_without_session(auth_secret: str, tmp_path):
-    auth = DashboardAuth(auth_secret, str(tmp_path / "db.sqlite"))
+async def test_auth_websocket_rejects_without_session(auth_secret: str, auth_db_url: str):
+    auth = DashboardAuth(auth_secret, auth_db_url)
     auth.create_user("alice", "password123")
     server = DashboardServer(port=0, portfolio_state=_make_portfolio_state(), auth=auth)
     app = server.build_app()

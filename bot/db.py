@@ -101,6 +101,16 @@ pending_settlements_table = sa.Table(
 )
 
 
+neh_dashboard_admin_users_table = sa.Table(
+    "neh_dashboard_admin_users",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("username", sa.String(64), nullable=False, unique=True),
+    sa.Column("password_hash", sa.String(128), nullable=False),
+    sa.Column("created_at", sa.DateTime, server_default=sa.func.now()),
+)
+
+
 ambiguous_orders_table = sa.Table(
     "ambiguous_orders",
     metadata,

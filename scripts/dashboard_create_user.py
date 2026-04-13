@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Create a dashboard admin user (SQLite + bcrypt).
+"""Create a dashboard admin user in Postgres (same URL as the bot) + bcrypt.
 
-Requires DASHBOARD_AUTH_SECRET (≥32 chars) and DASHBOARD_AUTH_DB_PATH (optional).
+Requires DASHBOARD_AUTH_SECRET (≥32 chars) and DATABASE_URL or
+DASHBOARD_AUTH_DATABASE_URL.
 
 Usage:
   python scripts/dashboard_create_user.py --username mark --password 'your-secure-pass'
@@ -34,16 +35,22 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    db_path = (os.getenv("DASHBOARD_AUTH_DB_PATH") or "dashboard_auth.sqlite").strip()
+    from bot.dashboard_auth import DashboardAuth, _resolve_dashboard_database_url
 
-    from bot.dashboard_auth import DashboardAuth
+    db_url = _resolve_dashboard_database_url()
+    if not db_url:
+        print(
+            "ERROR: Set DATABASE_URL or DASHBOARD_AUTH_DATABASE_URL for dashboard admin storage.",
+            file=sys.stderr,
+        )
+        return 1
 
-    auth = DashboardAuth(secret, db_path)
+    auth = DashboardAuth(secret, db_url)
     res = auth.create_user(args.username, args.password)
     if not res["success"]:
         print(res["error"], file=sys.stderr)
         return 1
-    print(f"Created admin user {args.username!r} (database: {db_path})")
+    print(f"Created admin user {args.username!r} (table neh_dashboard_admin_users)")
     return 0
 
 
