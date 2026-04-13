@@ -409,6 +409,16 @@ def secret_fingerprint(value: str | None) -> str:
     return h[:4] + "…" + h[-4:]
 
 
+SECTION_DOC_FRAGMENTS: dict[str, str] = {
+    "Trading mode": "trading-mode",
+    "Secrets": "secrets",
+    "Polymarket connection": "polymarket-connection",
+    "Paths & logging": "paths--logging",
+    "Strategy": "strategy",
+    "Risk": "risk",
+}
+
+
 def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, str]) -> str:
     """Build HTML inputs for all settings (no outer form tag)."""
     from html import escape
@@ -419,7 +429,14 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
 
     parts: list[str] = []
     for section, fields in sections.items():
-        parts.append(f'<h2 class="section-title">{escape(section)}</h2>')
+        frag = SECTION_DOC_FRAGMENTS.get(section)
+        doc_link = (
+            f' <a class="help-section-link" href="/help/runtime-settings#{frag}" '
+            'target="_blank" rel="noopener noreferrer" title="Open documentation">docs</a>'
+            if frag
+            else ""
+        )
+        parts.append(f'<h2 class="section-title">{escape(section)}{doc_link}</h2>')
         parts.append('<div class="settings-grid">')
         for field in fields:
             val = values.get(field.key, "")

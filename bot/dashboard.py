@@ -30,6 +30,7 @@ from bot.dashboard_auth import (
     session_cookie_headers,
 )
 from bot.nothing_happens_control import NothingHappensControlState
+from bot.help_view import render_help_page_html, resolve_doc_path
 from bot.runtime_settings import build_form_values, render_settings_form_fields, save_settings_from_form
 from bot.trade_ledger import get_db_engine
 
@@ -96,6 +97,7 @@ class DashboardServer:
         bar = (
             '<div id="neh-admin-nav" style="position:fixed;top:12px;right:16px;z-index:10000;'
             'display:flex;gap:10px;align-items:center;font-family:system-ui,sans-serif;font-size:13px;">'
+            '<a href="/help" target="_blank" rel="noopener noreferrer" style="color:#b2a796;text-decoration:none;">Help</a>'
             '<a href="/admin/settings" style="color:#e79d54;text-decoration:none;">Settings</a>'
             '<a href="/admin/users" style="color:#b2a796;text-decoration:none;">Users</a>'
             '<a href="/admin/change-password" style="color:#b2a796;text-decoration:none;">Password</a>'
@@ -293,6 +295,25 @@ class DashboardServer:
             message=msg,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
+
+    async def _help_index(self, request: web.Request):
+        return await self._help_render("")
+
+    async def _help_slug(self, request: web.Request):
+        slug = (request.match_info.get("slug") or "").strip().lower()
+        return await self._help_render(slug)
+
+    async def _help_render(self, slug: str) -> web.Response:
+        path = resolve_doc_path(slug)
+        if path is None:
+            raise web.HTTPNotFound(text="Documentation page not found.")
+        try:
+            md_raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning("help_read_failed: %s", exc)
+            raise web.HTTPNotFound(text="Documentation unavailable.") from exc
+        html = render_help_page_html(slug=slug, md_raw=md_raw)
+        return web.Response(text=html, content_type="text/html", charset="utf-8")
 
     async def _admin_settings_post(self, request: web.Request):
         if self._auth is None:
@@ -596,6 +617,10 @@ class DashboardServer:
             path = request.path
             if path == "/login" and request.method in ("GET", "HEAD", "POST"):
                 return await handler(request)
+            if path == "/help" or path.startswith("/help/"):
+                if request.method not in ("GET", "HEAD"):
+                    return web.Response(status=405, text="Method not allowed")
+                return await handler(request)
             token = read_cookie(request, SESSION_COOKIE)
             sess = self._auth.read_session(token)
             if sess is None:
@@ -612,6 +637,9 @@ class DashboardServer:
         middlewares = [auth_middleware] if self._auth else []
         app = web.Application(middlewares=middlewares)
         app.router.add_get("/", self._index)
+        app.router.add_get("/help", self._help_index)
+        app.router.add_get("/help/", self._help_index)
+        app.router.add_get("/help/{slug}", self._help_slug)
         app.router.add_get("/nothingeverhappens.svg", self._background_image)
         app.router.add_get("/ws", self._ws_handler)
         if self._auth:

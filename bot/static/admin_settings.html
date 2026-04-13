@@ -81,6 +81,19 @@ label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; margin-top:
 .field-help { margin-top: 0.35rem; font-size: 0.8rem; color: var(--text-muted); max-width: 40rem; }
 .field-fp { margin-top: 0.35rem; font-size: 0.8rem; }
 h1 { font-size: 1.5rem; }
+.section-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; }
+.help-section-link {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+}
+.help-section-link:hover { background: var(--bg); }
 </style>
 </head>
 <body>
@@ -95,6 +108,7 @@ h1 { font-size: 1.5rem; }
     <div class="flex admin-nav">
       <h1>Runtime settings</h1>
       <div class="nav-wrap">
+        <a href="/help" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">Help</a>
         <a href="/" class="btn btn-secondary">Dashboard</a>
         <a href="/admin/users" class="btn btn-secondary">Users</a>
         <a href="/admin/change-password" class="btn btn-secondary">Password</a>
@@ -111,6 +125,9 @@ h1 { font-size: 1.5rem; }
         Values are stored in the bot SQLite database and loaded into the process at <strong>startup</strong>.
         After saving, <strong>restart the bot</strong> so the trading engine, CLOB client, and log level pick up changes.
         Clear a non-secret field and save to fall back to <code>config.json</code> / environment for that key (secrets: leave blank to keep).
+        See <a href="/help/configuration-overview" target="_blank" rel="noopener noreferrer">configuration overview</a>
+        and <a href="/help/runtime-settings" target="_blank" rel="noopener noreferrer">runtime settings reference</a>
+        (section <strong>docs</strong> links open the matching chapter).
       </p>
       <form method="POST" action="/admin/settings">
         <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">

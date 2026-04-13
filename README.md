@@ -104,6 +104,11 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
+## Documentation
+
+- **Operator / developer guides:** [`docs/README.md`](docs/README.md) (Markdown in the repo).  
+- **In the running app:** open **`/help`** on the dashboard (same content as HTML, with nav). Contextual **?** / **docs** links in the UI jump to the relevant sections.
+
 ## Included Scripts
 
 | Script | Purpose |

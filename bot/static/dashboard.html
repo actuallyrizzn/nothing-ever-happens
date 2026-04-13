@@ -99,6 +99,20 @@ body::before {
 .socket.connected { color: var(--green); }
 .socket.disconnected { color: var(--red); }
 
+.inline-help {
+  margin-left: 6px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-decoration: none;
+  vertical-align: super;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.inline-help:hover { color: var(--accent); border-color: var(--accent); }
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -125,6 +139,7 @@ body::before {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 8px;
+  position: relative;
 }
 
 .summary-card .value {
@@ -410,51 +425,51 @@ th[data-sort].sort-desc::after {
 <div class="shell">
   <div class="header">
     <div class="title">
-      <h1>Nothing Ever Happens</h1>
+      <h1>Nothing Ever Happens<a href="/help/dashboard-ui" class="inline-help" target="_blank" rel="noopener noreferrer" title="Dashboard documentation">?</a></h1>
     </div>
     <div class="header-actions">
-      <div id="socket" class="socket disconnected">socket: disconnected</div>
+      <div id="socket" class="socket disconnected">socket: disconnected<a href="/help/dashboard-ui#websocket-connection" class="inline-help" target="_blank" rel="noopener noreferrer" title="WebSocket docs">?</a></div>
     </div>
   </div>
 
   <div class="summary-grid">
     <div class="summary-card">
-      <div class="label">Monitored</div>
+      <div class="label">Monitored<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="monitored">--</div>
       <div class="meta">filtered standalone markets</div>
     </div>
     <div class="summary-card">
-      <div class="label">Eligible</div>
+      <div class="label">Eligible<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="eligible">--</div>
       <div class="meta">no current position</div>
     </div>
     <div class="summary-card">
-      <div class="label">In Range</div>
+      <div class="label">In Range<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="in-range">--</div>
       <div class="meta">last known live ask at or below cap</div>
     </div>
     <div class="summary-card">
-      <div class="label">Open Positions</div>
+      <div class="label">Open Positions<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="open-count">0</div>
       <div class="meta" id="last-position-sync">waiting for sync</div>
     </div>
     <div class="summary-card">
-      <div class="label">Cash</div>
+      <div class="label">Cash<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="cash-balance">--</div>
       <div class="meta" id="last-price-cycle">waiting for cycle</div>
     </div>
     <div class="summary-card">
-      <div class="label">Portfolio</div>
+      <div class="label">Portfolio<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="portfolio-value">--</div>
       <div class="meta" id="portfolio-breakdown">cash -- | positions --</div>
     </div>
     <div class="summary-card">
-      <div class="label">Session PnL</div>
+      <div class="label">Session PnL<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value" id="session-pnl">--</div>
       <div class="meta" id="session-balance">balance --</div>
     </div>
     <div class="summary-card">
-      <div class="label">Last Error</div>
+      <div class="label">Last Error<a href="/help/dashboard-ui#portfolio-summary" class="inline-help" target="_blank" rel="noopener noreferrer" title="Summary tiles">?</a></div>
       <div class="value mono" id="last-error">none</div>
       <div class="meta" id="last-market-refresh">market refresh --</div>
     </div>
@@ -462,7 +477,7 @@ th[data-sort].sort-desc::after {
 
   <section class="panel control-panel">
     <div class="panel-head">
-      <h2 class="panel-title">Position Cap</h2>
+      <h2 class="panel-title">Position Cap<a href="/help/dashboard-ui#position-cap" class="inline-help" target="_blank" rel="noopener noreferrer" title="Position cap docs">?</a></h2>
       <div class="panel-note" id="target-status">env configured</div>
     </div>
     <div class="trade-meta" id="target-meta">Open -- | Pending -- | Remaining -- | Target -- | Opened --</div>
@@ -471,7 +486,7 @@ th[data-sort].sort-desc::after {
   <div class="layout">
     <section class="panel">
       <div class="panel-head">
-        <h2 class="panel-title">Open Positions</h2>
+        <h2 class="panel-title">Open Positions<a href="/help/dashboard-ui#open-positions-table" class="inline-help" target="_blank" rel="noopener noreferrer" title="Positions table">?</a></h2>
         <div class="panel-note" id="positions-note">Waiting for portfolio state</div>
       </div>
       <div class="table-wrap">
@@ -498,7 +513,7 @@ th[data-sort].sort-desc::after {
 
     <section class="panel">
       <div class="panel-head">
-        <h2 class="panel-title">Recent Trades</h2>
+        <h2 class="panel-title">Recent Trades<a href="/help/dashboard-ui#recent-trades--ledger" class="inline-help" target="_blank" rel="noopener noreferrer" title="Trade ledger docs">?</a></h2>
         <div class="panel-note">trade ledger tail</div>
       </div>
       <div id="trades-body" class="trade-list">
