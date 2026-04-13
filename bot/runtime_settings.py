@@ -39,6 +39,8 @@ class SettingField:
     help: str = ""
     secret: bool = False
     choices: tuple[str, ...] = ()
+    # Second line under the control: units and scale (not basis points unless stated).
+    value_hint: str = ""
 
 
 # All keys we support in the admin UI / DB (non-secret defaults can be seeded).
@@ -75,28 +77,178 @@ FIELDS: tuple[SettingField, ...] = (
         "Thread pool size for blocking exchange calls.",
     ),
     SettingField("BOT_VARIANT", "Bot variant tag", "Paths & logging", "str", "Optional label recorded on ledger rows."),
-    SettingField("PM_NH_MARKET_REFRESH_INTERVAL_SEC", "Market refresh (sec)", "Strategy", "int", "How often to refresh candidate markets."),
-    SettingField("PM_NH_PRICE_POLL_INTERVAL_SEC", "Price poll (sec)", "Strategy", "int"),
-    SettingField("PM_NH_POSITION_SYNC_INTERVAL_SEC", "Position sync (sec)", "Strategy", "int"),
-    SettingField("PM_NH_ORDER_DISPATCH_INTERVAL_SEC", "Order dispatch (sec)", "Strategy", "int"),
-    SettingField("PM_NH_CASH_PCT_PER_TRADE", "Cash % per trade", "Strategy", "float"),
-    SettingField("PM_NH_MIN_TRADE_AMOUNT", "Min trade amount (USD)", "Strategy", "float"),
-    SettingField("PM_NH_FIXED_TRADE_AMOUNT_USD", "Fixed trade amount (USD)", "Strategy", "float", "0 = use percentage only."),
-    SettingField("PM_NH_MAX_ENTRY_PRICE", "Max entry price", "Strategy", "float", "NO token price cap."),
-    SettingField("PM_NH_ALLOWED_SLIPPAGE", "Allowed slippage", "Strategy", "float"),
-    SettingField("PM_NH_REQUEST_CONCURRENCY", "Request concurrency", "Strategy", "int"),
-    SettingField("PM_NH_BUY_RETRY_COUNT", "Buy retry count", "Strategy", "int"),
-    SettingField("PM_NH_BUY_RETRY_BASE_DELAY_SEC", "Buy retry base delay (sec)", "Strategy", "float"),
-    SettingField("PM_NH_MAX_BACKOFF_SEC", "Max backoff (sec)", "Strategy", "float"),
-    SettingField("PM_NH_MAX_NEW_POSITIONS", "Max new positions", "Strategy", "int", "-1 = unlimited."),
-    SettingField("PM_NH_SHUTDOWN_ON_MAX_NEW_POSITIONS", "Shutdown on max positions", "Strategy", "bool"),
-    SettingField("PM_NH_REDEEMER_INTERVAL_SEC", "Redeemer interval (sec)", "Strategy", "int"),
-    SettingField("PM_RISK_MAX_TOTAL_OPEN_EXPOSURE_USD", "Max total open exposure (USD)", "Risk", "float", "0 = use code default."),
-    SettingField("PM_RISK_MAX_MARKET_OPEN_EXPOSURE_USD", "Max per-market exposure (USD)", "Risk", "float"),
-    SettingField("PM_RISK_MAX_DAILY_DRAWDOWN_USD", "Max daily drawdown (USD)", "Risk", "float", "0 disables balance drawdown breaker."),
-    SettingField("PM_RISK_KILL_COOLDOWN_SEC", "Kill-switch cooldown (sec)", "Risk", "float"),
-    SettingField("PM_RISK_DRAWDOWN_ARM_AFTER_SEC", "Drawdown arm after (sec)", "Risk", "float"),
-    SettingField("PM_RISK_DRAWDOWN_MIN_FRESH_OBS", "Drawdown min fresh observations", "Risk", "int"),
+    SettingField(
+        "PM_NH_MARKET_REFRESH_INTERVAL_SEC",
+        "Market refresh (sec)",
+        "Strategy",
+        "int",
+        "How often to refresh candidate markets.",
+        value_hint="Whole seconds between full market-list refreshes—not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_PRICE_POLL_INTERVAL_SEC",
+        "Price poll (sec)",
+        "Strategy",
+        "int",
+        value_hint="Whole seconds between price checks—not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_POSITION_SYNC_INTERVAL_SEC",
+        "Position sync (sec)",
+        "Strategy",
+        "int",
+        value_hint="Whole seconds between portfolio / cash syncs—not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_ORDER_DISPATCH_INTERVAL_SEC",
+        "Order dispatch (sec)",
+        "Strategy",
+        "int",
+        value_hint="Whole seconds between attempts to open new positions—not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_CASH_PCT_PER_TRADE",
+        "Cash % per trade",
+        "Strategy",
+        "float",
+        value_hint=(
+            "Decimal fraction of available cash per new trade, not basis points and not “percent” as an integer. "
+            "Example: 0.02 means 2% of cash (two hundredths). 2 or 200 would be wrong. Allowed range: above 0 up through 1.0 (100%)."
+        ),
+    ),
+    SettingField(
+        "PM_NH_MIN_TRADE_AMOUNT",
+        "Min trade amount (USD)",
+        "Strategy",
+        "float",
+        value_hint="US dollars (plain number, e.g. 5 = five dollars). Not a ratio or basis points.",
+    ),
+    SettingField(
+        "PM_NH_FIXED_TRADE_AMOUNT_USD",
+        "Fixed trade amount (USD)",
+        "Strategy",
+        "float",
+        "0 = use percentage only.",
+        value_hint="US dollars when using fixed sizing; 0 turns this off. Not a percentage of cash.",
+    ),
+    SettingField(
+        "PM_NH_MAX_ENTRY_PRICE",
+        "Max entry price",
+        "Strategy",
+        "float",
+        "NO token price cap.",
+        value_hint=(
+            "Polymarket price on a 0–1 scale (probability / dollars-per-payout share), not basis points. "
+            "Example: 0.65 ≈ 65¢ ask cap. Do not enter 65 for 65%—use 0.65."
+        ),
+    ),
+    SettingField(
+        "PM_NH_ALLOWED_SLIPPAGE",
+        "Allowed slippage",
+        "Strategy",
+        "float",
+        value_hint=(
+            "Extra room on the same 0–1 price scale as max entry (added to the working price on buys), not basis points. "
+            "Example: 0.30 allows up to +0.30 on that scale—not 30 “bps” and not 0.003 for 30 bps."
+        ),
+    ),
+    SettingField(
+        "PM_NH_REQUEST_CONCURRENCY",
+        "Request concurrency",
+        "Strategy",
+        "int",
+        value_hint="Integer count of parallel in-flight requests—not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_BUY_RETRY_COUNT",
+        "Buy retry count",
+        "Strategy",
+        "int",
+        value_hint="Whole number of retries after a failed buy—not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_BUY_RETRY_BASE_DELAY_SEC",
+        "Buy retry base delay (sec)",
+        "Strategy",
+        "float",
+        value_hint="Seconds (can use decimals, e.g. 1.5)—backoff starts from this, not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_MAX_BACKOFF_SEC",
+        "Max backoff (sec)",
+        "Strategy",
+        "float",
+        value_hint="Maximum seconds between retries—cap on delay time, not a percentage.",
+    ),
+    SettingField(
+        "PM_NH_MAX_NEW_POSITIONS",
+        "Max new positions",
+        "Strategy",
+        "int",
+        "-1 = unlimited.",
+        value_hint="Integer position count (e.g. 5 = at most five new opens). -1 means no limit—not a percent.",
+    ),
+    SettingField(
+        "PM_NH_SHUTDOWN_ON_MAX_NEW_POSITIONS",
+        "Shutdown on max positions",
+        "Strategy",
+        "bool",
+        value_hint="true/false only—when true, stops opening once the max-new count is hit.",
+    ),
+    SettingField(
+        "PM_NH_REDEEMER_INTERVAL_SEC",
+        "Redeemer interval (sec)",
+        "Strategy",
+        "int",
+        value_hint="Whole seconds between on-chain redeemer ticks when that feature runs—not a percentage.",
+    ),
+    SettingField(
+        "PM_RISK_MAX_TOTAL_OPEN_EXPOSURE_USD",
+        "Max total open exposure (USD)",
+        "Risk",
+        "float",
+        "0 = use code default.",
+        value_hint="US dollars of total open notional across markets—not a percent of account. 0 here uses the built-in default.",
+    ),
+    SettingField(
+        "PM_RISK_MAX_MARKET_OPEN_EXPOSURE_USD",
+        "Max per-market exposure (USD)",
+        "Risk",
+        "float",
+        value_hint="US dollars cap per market—not a percentage.",
+    ),
+    SettingField(
+        "PM_RISK_MAX_DAILY_DRAWDOWN_USD",
+        "Max daily drawdown (USD)",
+        "Risk",
+        "float",
+        "0 disables balance drawdown breaker.",
+        value_hint=(
+            "US dollars below the day’s balance high-water mark that triggers the breaker—not a percent. "
+            "Example: 100 means a $100 drop from the daily peak. 0 turns this rule off."
+        ),
+    ),
+    SettingField(
+        "PM_RISK_KILL_COOLDOWN_SEC",
+        "Kill-switch cooldown (sec)",
+        "Risk",
+        "float",
+        value_hint="Seconds to wait after a risk kill before trying again—not a percentage.",
+    ),
+    SettingField(
+        "PM_RISK_DRAWDOWN_ARM_AFTER_SEC",
+        "Drawdown arm after (sec)",
+        "Risk",
+        "float",
+        value_hint="Seconds after startup before drawdown logic arms—not a percentage.",
+    ),
+    SettingField(
+        "PM_RISK_DRAWDOWN_MIN_FRESH_OBS",
+        "Drawdown min fresh observations",
+        "Risk",
+        "int",
+        value_hint="Integer count of balance readings required—not a percentage.",
+    ),
 )
 
 FIELD_BY_KEY = {f.key: f for f in FIELDS}
@@ -419,6 +571,17 @@ SECTION_DOC_FRAGMENTS: dict[str, str] = {
 }
 
 
+def _field_help_and_value_hint_html(field: SettingField) -> str:
+    from html import escape
+
+    parts: list[str] = []
+    if field.help:
+        parts.append(f'<p class="field-help">{escape(field.help)}</p>')
+    if field.value_hint:
+        parts.append(f'<p class="field-value-hint">{escape(field.value_hint)}</p>')
+    return "".join(parts)
+
+
 def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, str]) -> str:
     """Build HTML inputs for all settings (no outer form tag)."""
     from html import escape
@@ -442,7 +605,7 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
             val = values.get(field.key, "")
             fid = escape(field.key)
             label = escape(field.label)
-            hint = f'<p class="field-help">{escape(field.help)}</p>' if field.help else ""
+            hint_block = _field_help_and_value_hint_html(field)
             if field.secret:
                 fp = fingerprints.get(field.key, "")
                 fp_html = (
@@ -452,7 +615,7 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
                     f'<div class="field"><label for="{fid}">{label}</label>'
                     f'<input type="password" id="{fid}" name="{field.key}" '
                     'autocomplete="off" placeholder="Leave blank to keep unchanged">'
-                    f"{fp_html}{hint}</div>"
+                    f"{fp_html}{hint_block}</div>"
                 )
             elif field.kind == "bool":
                 checked_t = " selected" if val is True else ""
@@ -462,7 +625,7 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
                     f'<select id="{fid}" name="{field.key}">'
                     f'<option value="false"{checked_f}>false</option>'
                     f'<option value="true"{checked_t}>true</option>'
-                    f"</select>{hint}</div>"
+                    f"</select>{hint_block}</div>"
                 )
             elif field.kind == "choice":
                 opts = []
@@ -471,13 +634,13 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
                     opts.append(f'<option value="{escape(str(c))}"{sel}>{escape(str(c))}</option>')
                 parts.append(
                     f'<div class="field"><label for="{fid}">{label}</label>'
-                    f'<select id="{fid}" name="{field.key}">{"".join(opts)}</select>{hint}</div>'
+                    f'<select id="{fid}" name="{field.key}">{"".join(opts)}</select>{hint_block}</div>'
                 )
             else:
                 sval = escape(str(val)) if val is not None else ""
                 parts.append(
                     f'<div class="field"><label for="{fid}">{label}</label>'
-                    f'<input type="text" id="{fid}" name="{field.key}" value="{sval}">{hint}</div>'
+                    f'<input type="text" id="{fid}" name="{field.key}" value="{sval}">{hint_block}</div>'
                 )
         parts.append("</div>")
     return "\n".join(parts)

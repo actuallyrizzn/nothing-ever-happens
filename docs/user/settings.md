@@ -33,11 +33,23 @@ Clearing a **non-secret** field and saving usually means “go back to the defau
 
 ## Strategy {: #strategy }
 
-These control **how often** the bot looks at markets and prices, **how big** each trade is, **how high** a price you are willing to pay for a “No” share, **retries**, and **limits** on how many new positions to open. Labels on the form match what you see here—tighter caps and lower prices mean fewer, smaller, pickier trades.
+These control **how often** the bot looks at markets and prices, **how big** each trade is, **how high** a price you are willing to pay for a “No” share, **retries**, and **limits** on how many new positions to open.
+
+**Units (read carefully):**
+
+- **Intervals** (market refresh, price poll, position sync, order dispatch, redeemer) are **whole seconds**, not percentages.  
+- **Cash % per trade** is a **decimal fraction**, not basis points and not a whole-number percent. **0.02 = 2%** of available cash. **2** or **200** would be wrong.  
+- **Min / fixed trade amounts** are **US dollars** (e.g. `5` = five dollars).  
+- **Max entry price** and **allowed slippage** use Polymarket’s **0–1 price scale** (same scale as the order book). **0.65** is a 65¢-style cap, **not** `65` and **not** basis points. Slippage **0.30** means up to **+0.30** on that scale on buys—not “30 bps.”  
+- **Concurrency, retries, max positions** are **counts** (integers), not percents.
+
+The form shows a short **hint under each field** with the same idea.
 
 ## Risk {: #risk }
 
-Caps on **how much** can be open at once, per market and in total, and optional **drawdown** rules that can pause trading if the account balance drops too far in a day. Zero drawdown limit usually means that particular safety is off—confirm with your operator if you are unsure.
+**Exposure** and **drawdown** caps are in **US dollars** of notional / balance change—not percentages of your account unless you choose numbers that happen to match that. **0** on daily drawdown turns that breaker off. Cooldown and “arm after” values are **seconds**.
+
+The form includes a line under each risk field stating the unit.
 
 ## Related {: #related-settings }
 
