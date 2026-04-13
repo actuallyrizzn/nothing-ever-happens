@@ -62,6 +62,18 @@ python -m bot.main
 
 The dashboard binds `$PORT` or `DASHBOARD_PORT` when one is set.
 
+### Dashboard authentication (VPS / public bind)
+
+When **`DASHBOARD_AUTH_SECRET`** is set (at least 32 characters), the dashboard uses the same ideas as other Decision Science Corp admin panels: **SQLite users**, **bcrypt** passwords, **CSRF** on POST forms, and a **signed session cookie** (7-day TTL). Without that env var, behavior is unchanged (no login).
+
+- **`DASHBOARD_AUTH_DB_PATH`** — SQLite file (default `dashboard_auth.sqlite` in the process working directory).
+- **`DASHBOARD_BOOTSTRAP_USERNAME`** / **`DASHBOARD_BOOTSTRAP_PASSWORD`** — optional; if the user table is empty at startup, one admin is created (useful for first deploy).
+- **`python scripts/dashboard_create_user.py --username … --password …`** — create admins anytime (requires `DASHBOARD_AUTH_SECRET` in the environment).
+
+Routes: **`/login`**, **`/logout`** (POST), **`/admin/users`**, **`/admin/change-password`**. The trading UI injects a small **Admin / Password / Logout** bar when auth is on.
+
+Use **HTTPS** in production (`Secure` cookies follow `X-Forwarded-Proto: https` behind a reverse proxy).
+
 ## Heroku Workflow
 
 The shell helpers use either an explicit app name argument or `HEROKU_APP_NAME`.
@@ -89,6 +101,7 @@ Only run the `web` dyno. The `worker` entry exists only to fail fast if it is st
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 

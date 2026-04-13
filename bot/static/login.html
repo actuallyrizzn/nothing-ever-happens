@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — Nothing Ever Happens</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --bg: #0f172a;
+  --bg-card: #1e293b;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --border: #334155;
+  --danger: #dc2626;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+.header {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 2rem;
+}
+.header-content { max-width: 1200px; margin: 0 auto; }
+.site-title { font-size: 1.25rem; font-weight: 700; }
+.site-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+.main-content { padding: 0; }
+.info-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.mb-2 { margin-bottom: 1.5rem; }
+.btn {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover { background: var(--primary-dark); }
+input[type="text"], input[type="password"] {
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; margin-top: 0.75rem; }
+label:first-of-type { margin-top: 0; }
+.error { color: var(--danger); margin-bottom: 1rem; }
+.muted { color: var(--text-muted); font-size: 0.875rem; }
+h1 { margin-bottom: 1.5rem; font-size: 1.5rem; }
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="header-content">
+    <h1 class="site-title">Nothing Ever Happens</h1>
+    <p class="site-subtitle">Dashboard — admin login</p>
+  </div>
+</header>
+<div class="container">
+  <main class="main-content">
+    <h1>Login</h1>
+    {{NOTICE}}
+    {{ERROR}}
+    <div class="info-box" style="max-width: 24rem;">
+      <form method="POST" action="/login" autocomplete="on">
+        <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required maxlength="64" autocomplete="username">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password">
+        <p class="muted" style="margin-top:0.75rem;">Session expires after 7 days of inactivity.</p>
+        <button type="submit" class="btn" style="margin-top: 1rem;">Login</button>
+      </form>
+    </div>
+  </main>
+</div>
+</body>
+</html>

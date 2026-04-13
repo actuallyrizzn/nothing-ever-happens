@@ -28,14 +28,14 @@ def _make_portfolio_state() -> PortfolioState:
 
 
 def test_dashboard_creates():
-    server = DashboardServer(port=0)
+    server = DashboardServer(port=0, auth=None)
     assert server.port == 0
     assert server._clients == set()
 
 
 def test_dashboard_force_portfolio_snapshot_replays_latest_state():
     portfolio_state = _make_portfolio_state()
-    server = DashboardServer(port=0, portfolio_state=portfolio_state)
+    server = DashboardServer(port=0, portfolio_state=portfolio_state, auth=None)
 
     first = server._make_portfolio_message(force=True)
     second = server._make_portfolio_message(force=True)
@@ -50,7 +50,7 @@ def test_dashboard_force_portfolio_snapshot_replays_latest_state():
 
 @pytest.mark.asyncio
 async def test_dashboard_http_serves_html():
-    server = DashboardServer(port=0)
+    server = DashboardServer(port=0, auth=None)
     app = aiohttp.web.Application()
     app.router.add_get("/", server._index)
 
@@ -73,7 +73,7 @@ async def test_dashboard_http_serves_html():
 
 @pytest.mark.asyncio
 async def test_dashboard_http_serves_background_image():
-    server = DashboardServer(port=0)
+    server = DashboardServer(port=0, auth=None)
     app = aiohttp.web.Application()
     app.router.add_get("/nothingeverhappens.svg", server._background_image)
 
@@ -95,7 +95,9 @@ async def test_dashboard_http_serves_background_image():
 
 @pytest.mark.asyncio
 async def test_dashboard_websocket_sends_initial_portfolio():
-    server = DashboardServer(port=0, portfolio_state=_make_portfolio_state())
+    server = DashboardServer(
+        port=0, portfolio_state=_make_portfolio_state(), auth=None
+    )
     app = aiohttp.web.Application()
     app.router.add_get("/ws", server._ws_handler)
 
@@ -129,6 +131,7 @@ async def test_dashboard_websocket_rejects_nothing_happens_target_updates():
         port=0,
         portfolio_state=_make_portfolio_state(),
         nothing_happens_control=control_state,
+        auth=None,
     )
     app = aiohttp.web.Application()
     app.router.add_get("/ws", server._ws_handler)
