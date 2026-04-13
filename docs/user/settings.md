@@ -2,6 +2,8 @@
 
 **Settings** is where trading behavior, wallet connection, and timing are changed. Nothing here takes effect for the **running** bot until it is **restarted** (whoever runs the server handles that).
 
+If your operator enabled **restart from the web** on the server, you may see **Request bot restart after this save**. Checking it writes a small flag file; a **cron** job on the machine restarts the bot (usually within about a minute). If that checkbox does not appear, restarts are still done on the host the old-fashioned way.
+
 ## Trading mode {: #trading-mode }
 
 - **Bot mode** — **practice (paper)** vs **live**. Live does not send real orders by itself; see **[Trading modes](trading-modes.md#what-live-means)**.  

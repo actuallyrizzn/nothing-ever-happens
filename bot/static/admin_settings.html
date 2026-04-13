@@ -134,6 +134,24 @@ h1 { font-size: 1.5rem; }
   padding: 0.15rem 0.45rem;
 }
 .help-section-link:hover { background: var(--bg); }
+.restart-request-box {
+  margin-bottom: 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.06);
+}
+.restart-request-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 0;
+}
+.restart-request-label input { margin-top: 0.2rem; flex-shrink: 0; }
+.restart-request-note { margin-top: 0.5rem; font-size: 0.8rem; }
 </style>
 </head>
 <body>
@@ -164,6 +182,7 @@ h1 { font-size: 1.5rem; }
       <p class="muted" style="margin-bottom:1rem;">
         Values are saved when you submit this form and loaded into the process at <strong>startup</strong>.
         After saving, <strong>restart the bot</strong> so the trading engine, CLOB client, and log level pick up changes.
+        If your host configured a restart flag + cron, use the checkbox below to request that restart from the browser.
         Clear a non-secret field and save to fall back to <code>config.json</code> / environment for that key (secrets: leave blank to keep).
         Settings are grouped in <strong>tabs</strong> below (one tab per section); all fields still submit together.
         See <a href="/help/settings" target="_blank" rel="noopener noreferrer">settings help</a>
@@ -172,6 +191,7 @@ h1 { font-size: 1.5rem; }
       </p>
       <form method="POST" action="/admin/settings">
         <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+        {{RESTART_REQUEST_BLOCK}}
         {{FORM_FIELDS}}
         <button type="submit" class="btn" style="margin-top: 1.5rem;">Save settings</button>
       </form>

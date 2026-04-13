@@ -31,12 +31,28 @@ from bot.dashboard_auth import (
 )
 from bot.nothing_happens_control import NothingHappensControlState
 from bot.help_view import render_help_page_html, resolve_doc_path
+from bot.restart_flag import restart_via_flag_enabled, write_restart_flag_after_settings_save
 from bot.runtime_settings import build_form_values, render_settings_form_fields, save_settings_from_form
 from bot.trade_ledger import get_db_engine
 
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+_RESTART_CHECKBOX_HTML = (
+    '<div class="restart-request-box">'
+    '<label class="restart-request-label">'
+    '<input type="checkbox" name="neh_request_restart" value="1">'
+    "<span>Request bot restart after this save (host cron should restart the process within about a minute).</span>"
+    "</label>"
+    '<p class="muted restart-request-note">Uses the restart flag file on the server; only works if the operator '
+    "installed the cron job from <code>scripts/neh_cron_restart.sh</code>.</p>"
+    "</div>"
+)
+
+
+def _admin_settings_restart_block() -> str:
+    return _RESTART_CHECKBOX_HTML if restart_via_flag_enabled() else ""
 
 _AUTH_DEFAULT = object()
 
@@ -288,10 +304,23 @@ class DashboardServer:
                 "Settings saved to the database. Restart the bot process so the trading "
                 "engine and exchange client pick up changes."
             )
+            r = request.rel_url.query.get("restart")
+            if r == "1":
+                msg += (
+                    " A restart was requested via the flag file; the host cron job should "
+                    "restart the bot shortly."
+                )
+            elif r == "missing":
+                msg += (
+                    ' You checked "request restart," but this server is not configured with '
+                    "NEH_RESTART_FLAG_PATH, so no restart was scheduled. Ask your operator to "
+                    "set the env var and cron script, or restart the process on the host."
+                )
         body = render_admin_settings_page(
             STATIC_DIR,
             csrf_token=csrf,
             form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
+            restart_request_block=_admin_settings_restart_block(),
             message=msg,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
@@ -335,12 +364,25 @@ class DashboardServer:
                 form[key] = v
         ok, err = save_settings_from_form(engine, form)
         if ok:
-            raise web.HTTPFound(location="/admin/settings?saved=1")
+            want_restart = str(form.get("neh_request_restart") or "").strip().lower() in (
+                "1",
+                "true",
+                "on",
+                "yes",
+            )
+            loc = "/admin/settings?saved=1"
+            if want_restart:
+                if write_restart_flag_after_settings_save():
+                    loc += "&restart=1"
+                else:
+                    loc += "&restart=missing"
+            raise web.HTTPFound(location=loc)
         ctx = build_form_values(engine)
         body = render_admin_settings_page(
             STATIC_DIR,
             csrf_token=sess.csrf,
             form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
+            restart_request_block=_admin_settings_restart_block(),
             error=err,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
