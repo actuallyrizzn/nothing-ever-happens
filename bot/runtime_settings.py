@@ -37,6 +37,8 @@ class SettingField:
     label: str
     section: str
     kind: str  # str | int | float | bool | choice
+    # One line under the control. Put 0–1 / % / bps explanations on floats that need
+    # them—not on bool or choice dropdowns (those stay plain English).
     help: str = ""
     secret: bool = False
     choices: tuple[str, ...] = ()
@@ -196,7 +198,7 @@ FIELDS: tuple[SettingField, ...] = (
         "Cash % per trade",
         "Strategy",
         "float",
-        "How much cash to use per new position.",
+        "Decimal fraction of cash per new trade (0–1); e.g. 0.02 = 2% of cash, not the integer 2.",
     ),
     SettingField(
         "PM_NH_MIN_TRADE_AMOUNT",
@@ -217,14 +219,14 @@ FIELDS: tuple[SettingField, ...] = (
         "Max entry price",
         "Strategy",
         "float",
-        "Do not buy above this price.",
+        "Highest NO price you will pay on the book’s 0–1 scale (e.g. 0.65)—not cents or bps.",
     ),
     SettingField(
         "PM_NH_ALLOWED_SLIPPAGE",
         "Allowed slippage",
         "Strategy",
         "float",
-        "Extra room on the limit when buying.",
+        "Extra headroom on buys in the same 0–1 unit as max entry (not basis points).",
     ),
     SettingField(
         "PM_NH_REQUEST_CONCURRENCY",
