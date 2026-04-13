@@ -26,7 +26,15 @@ def main() -> None:
     parser.add_argument(
         "--table",
         default="trade_events",
-        choices=["trade_events", "orders", "fills", "positions", "bot_state", "all"],
+        choices=[
+            "trade_events",
+            "orders",
+            "fills",
+            "positions",
+            "bot_state",
+            "runtime_settings",
+            "all",
+        ],
     )
     args = parser.parse_args()
 
