@@ -91,6 +91,15 @@ bot_state_table = sa.Table(
     sa.Column("updated_at", sa.DateTime, server_default=sa.func.now(), onupdate=sa.func.now()),
 )
 
+# Operator-editable runtime config (applied into os.environ at process startup; see bot.runtime_settings).
+runtime_settings_table = sa.Table(
+    "runtime_settings",
+    metadata,
+    sa.Column("key", sa.String, primary_key=True),
+    sa.Column("value", sa.String, nullable=False),
+    sa.Column("updated_at", sa.DateTime, server_default=sa.func.now(), onupdate=sa.func.now()),
+)
+
 
 trade_events_table = sa.Table(
     "trade_events",

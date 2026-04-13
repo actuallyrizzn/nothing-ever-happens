@@ -371,3 +371,20 @@ def render_change_password_page(
         .replace("{{MESSAGE}}", f'<div class="info-box mb-2"><p>{escape(message)}</p></div>' if message else "")
         .replace("{{ERROR}}", f'<p class="error">{escape(error)}</p>' if error else "")
     )
+
+
+def render_admin_settings_page(
+    static_dir: Path,
+    *,
+    csrf_token: str,
+    form_fields_html: str,
+    message: str = "",
+    error: str = "",
+) -> str:
+    html = load_template("admin_settings.html", static_dir)
+    return (
+        html.replace("{{CSRF_TOKEN}}", escape(csrf_token))
+        .replace("{{FORM_FIELDS}}", form_fields_html)
+        .replace("{{MESSAGE}}", f'<div class="info-box mb-2"><p>{escape(message)}</p></div>' if message else "")
+        .replace("{{ERROR}}", f'<p class="error">{escape(error)}</p>' if error else "")
+    )

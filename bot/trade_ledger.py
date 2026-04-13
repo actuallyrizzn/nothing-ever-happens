@@ -50,6 +50,11 @@ def init_db(database_url: str) -> None:
         _db_engine = None
 
 
+def get_db_engine():
+    """Return the SQLAlchemy engine used for trade_events (or None if init failed)."""
+    return _db_engine
+
+
 def _open_ledger():
     global _ledger_fd
     if _ledger_fd is None:

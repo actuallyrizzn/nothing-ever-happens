@@ -23,12 +23,15 @@ from bot.dashboard_auth import (
     clear_session_cookie_header,
     login_csrf_cookie_headers,
     read_cookie,
+    render_admin_settings_page,
     render_admin_users_page,
     render_change_password_page,
     render_login_page,
     session_cookie_headers,
 )
 from bot.nothing_happens_control import NothingHappensControlState
+from bot.runtime_settings import build_form_values, render_settings_form_fields, save_settings_from_form
+from bot.trade_ledger import get_db_engine
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +96,8 @@ class DashboardServer:
         bar = (
             '<div id="neh-admin-nav" style="position:fixed;top:12px;right:16px;z-index:10000;'
             'display:flex;gap:10px;align-items:center;font-family:system-ui,sans-serif;font-size:13px;">'
-            '<a href="/admin/users" style="color:#e79d54;text-decoration:none;">Admin</a>'
+            '<a href="/admin/settings" style="color:#e79d54;text-decoration:none;">Settings</a>'
+            '<a href="/admin/users" style="color:#b2a796;text-decoration:none;">Users</a>'
             '<a href="/admin/change-password" style="color:#b2a796;text-decoration:none;">Password</a>'
             '<form method="POST" action="/logout" style="margin:0;display:inline;">'
             f'<input type="hidden" name="csrf_token" value="{html_escape(csrf)}">'
@@ -261,6 +265,63 @@ class DashboardServer:
             body = render_change_password_page(
                 STATIC_DIR, csrf_token=sess.csrf, error=res["error"]
             )
+        return web.Response(text=body, content_type="text/html", charset="utf-8")
+
+    async def _admin_settings_get(self, request: web.Request):
+        if self._auth is None:
+            raise web.HTTPNotFound()
+        engine = get_db_engine()
+        if engine is None:
+            return web.Response(
+                status=503,
+                text="Bot database is not available; runtime settings require SQLite.",
+                content_type="text/plain",
+                charset="utf-8",
+            )
+        csrf = str(request["dashboard_csrf"])
+        ctx = build_form_values(engine)
+        msg = ""
+        if request.rel_url.query.get("saved") == "1":
+            msg = (
+                "Settings saved to the database. Restart the bot process so the trading "
+                "engine and exchange client pick up changes."
+            )
+        body = render_admin_settings_page(
+            STATIC_DIR,
+            csrf_token=csrf,
+            form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
+            message=msg,
+        )
+        return web.Response(text=body, content_type="text/html", charset="utf-8")
+
+    async def _admin_settings_post(self, request: web.Request):
+        if self._auth is None:
+            raise web.HTTPNotFound()
+        uid = int(request["dashboard_uid"])
+        sess = self._auth.read_session(read_cookie(request, SESSION_COOKIE))
+        if sess is None or sess.user_id != uid:
+            return web.Response(status=403, text="Session invalid")
+        data = await request.post()
+        if not self._auth.verify_csrf(sess, str(data.get("csrf_token") or "")):
+            return web.Response(status=403, text="CSRF validation failed")
+        engine = get_db_engine()
+        if engine is None:
+            return web.Response(status=503, text="Database unavailable")
+        form: dict[str, str] = {}
+        for key in data:
+            v = data.getone(key)
+            if isinstance(v, str):
+                form[key] = v
+        ok, err = save_settings_from_form(engine, form)
+        if ok:
+            raise web.HTTPFound(location="/admin/settings?saved=1")
+        ctx = build_form_values(engine)
+        body = render_admin_settings_page(
+            STATIC_DIR,
+            csrf_token=sess.csrf,
+            form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
+            error=err,
+        )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
 
     async def _ws_handler(self, request: web.Request):
@@ -561,6 +622,8 @@ class DashboardServer:
             app.router.add_post("/admin/users", self._admin_users_post)
             app.router.add_get("/admin/change-password", self._change_password_get)
             app.router.add_post("/admin/change-password", self._change_password_post)
+            app.router.add_get("/admin/settings", self._admin_settings_get)
+            app.router.add_post("/admin/settings", self._admin_settings_post)
         return app
 
     async def run(self) -> None:

@@ -89,15 +89,22 @@ async def run():
     configure_logging(os.getenv("LOG_LEVEL", "INFO"))
     _patch_clob_http_timeout()
 
+    database_url = resolve_database_url()
+
+    from bot.trade_ledger import get_db_engine, init_db
+    from bot.runtime_settings import apply_runtime_settings, seed_runtime_settings_if_empty
+
+    init_db(database_url)
+    _db_engine = get_db_engine()
+    if _db_engine is not None:
+        seed_runtime_settings_if_empty(_db_engine)
+    apply_runtime_settings(_db_engine)
+    configure_logging(os.getenv("LOG_LEVEL", "INFO"))
+
     exchange_cfg, strategy_cfg = load_nothing_happens_config()
     strategy_wallet_address = _resolve_live_wallet_address(exchange_cfg)
 
-    database_url = resolve_database_url()
     _validate_live_runtime(exchange_cfg, database_url)
-
-    from bot.trade_ledger import init_db
-
-    init_db(database_url)
 
     logger.info(
         "bot_starting",

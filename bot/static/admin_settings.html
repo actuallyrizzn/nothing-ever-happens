@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Change password — Nothing Ever Happens</title>
+<title>Runtime settings — Nothing Ever Happens</title>
 <style>
 :root {
   --primary: #2563eb;
@@ -13,7 +13,6 @@
   --text: #e2e8f0;
   --text-muted: #94a3b8;
   --border: #334155;
-  --danger: #dc2626;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -31,7 +30,7 @@ body {
 .header-content { max-width: 1200px; margin: 0 auto; }
 .site-title { font-size: 1.25rem; font-weight: 700; }
 .site-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
-.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+.container { max-width: 960px; margin: 0 auto; padding: 2rem; }
 .info-box {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -57,9 +56,10 @@ body {
   border: 1px solid var(--border);
   color: var(--text);
 }
-input[type="password"] {
+.btn-secondary:hover { background: var(--bg-card); }
+input[type="text"], input[type="password"], select {
   width: 100%;
-  max-width: 28rem;
+  max-width: 32rem;
   padding: 0.5rem 0.75rem;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -67,13 +67,19 @@ input[type="password"] {
   color: var(--text);
   font-size: 0.875rem;
 }
-label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; margin-top: 0.75rem; }
-label:first-of-type { margin-top: 0; }
+label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; margin-top: 0.75rem; font-weight: 600; }
 .flex { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .nav-wrap { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .admin-nav { justify-content: space-between; margin-bottom: 2rem; }
-.error { color: var(--danger); margin-bottom: 1rem; }
+.error { color: #dc2626; margin-bottom: 1rem; }
 .muted { color: var(--text-muted); font-size: 0.875rem; }
+.section-title { font-size: 1.1rem; margin: 2rem 0 1rem; color: var(--text); }
+.section-title:first-child { margin-top: 0; }
+.settings-grid { display: flex; flex-direction: column; gap: 0.25rem; }
+.field { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(51,65,85,0.5); }
+.field:last-child { border-bottom: none; }
+.field-help { margin-top: 0.35rem; font-size: 0.8rem; color: var(--text-muted); max-width: 40rem; }
+.field-fp { margin-top: 0.35rem; font-size: 0.8rem; }
 h1 { font-size: 1.5rem; }
 </style>
 </head>
@@ -81,17 +87,17 @@ h1 { font-size: 1.5rem; }
 <header class="header">
   <div class="header-content">
     <h1 class="site-title">Nothing Ever Happens</h1>
-    <p class="site-subtitle">Dashboard — admin</p>
+    <p class="site-subtitle">Dashboard — runtime settings (SQLite)</p>
   </div>
 </header>
 <div class="container">
   <main class="main-content">
     <div class="flex admin-nav">
-      <h1>Change password</h1>
+      <h1>Runtime settings</h1>
       <div class="nav-wrap">
         <a href="/" class="btn btn-secondary">Dashboard</a>
-        <a href="/admin/settings" class="btn btn-secondary">Settings</a>
         <a href="/admin/users" class="btn btn-secondary">Users</a>
+        <a href="/admin/change-password" class="btn btn-secondary">Password</a>
         <form method="POST" action="/logout" style="display:inline;">
           <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
           <button type="submit" class="btn btn-secondary">Logout</button>
@@ -100,17 +106,16 @@ h1 { font-size: 1.5rem; }
     </div>
     {{MESSAGE}}
     {{ERROR}}
-    <div class="info-box" style="max-width: 28rem;">
-      <form method="POST" action="/admin/change-password">
+    <div class="info-box mb-2">
+      <p class="muted" style="margin-bottom:1rem;">
+        Values are stored in the bot SQLite database and loaded into the process at <strong>startup</strong>.
+        After saving, <strong>restart the bot</strong> so the trading engine, CLOB client, and log level pick up changes.
+        Clear a non-secret field and save to fall back to <code>config.json</code> / environment for that key (secrets: leave blank to keep).
+      </p>
+      <form method="POST" action="/admin/settings">
         <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
-        <label for="current">Current password</label>
-        <input type="password" id="current" name="current_password" required autocomplete="current-password">
-        <label for="new1">New password</label>
-        <input type="password" id="new1" name="new_password" required minlength="8" autocomplete="new-password">
-        <label for="new2">Confirm new password</label>
-        <input type="password" id="new2" name="new_password_confirm" required minlength="8" autocomplete="new-password">
-        <p class="muted" style="margin-top:0.75rem;">At least 8 characters.</p>
-        <button type="submit" class="btn" style="margin-top: 1rem;">Update password</button>
+        {{FORM_FIELDS}}
+        <button type="submit" class="btn" style="margin-top: 1.5rem;">Save settings</button>
       </form>
     </div>
   </main>

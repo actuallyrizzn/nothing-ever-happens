@@ -59,12 +59,16 @@ cp .env.example .env
 
 ## Configuration
 
-The runtime reads:
+The runtime reads, in order:
 
-- `config.json` for non-secret runtime settings
-- `.env` for secrets and runtime flags
+1. **`config.json`** — defaults for connection + `strategies.nothing_happens` (and optional `PM_*` / `BOT_*` env vars if set).
+2. **`runtime_settings` table** (in the **same SQLite file** as `trade_events`) — written from **Admin → Settings** on the dashboard. On first boot, if this table is empty, it is **seeded** from `config.example.json` / your `config.json` (non-secret keys only). At startup, each stored row is applied into `os.environ`, so it overrides `.env` / `config.json` for that process.
 
-The runtime config lives under `strategies.nothing_happens`. See [config.example.json](config.example.json) and [.env.example](.env.example).
+**Bootstrap-only `.env`:** you still need a way to find SQLite (`DATABASE_URL` or `NOTHING_HAPPENS_SQLITE_PATH`) and, for a public dashboard, `DASHBOARD_AUTH_SECRET` (+ bind/port). Everything else can live in the database once configured there.
+
+**Restart:** changing settings in the UI updates SQLite immediately, but the **running** strategy and CLOB client are built at startup — **restart the bot** to apply trading, connection, and log-level changes.
+
+See [config.example.json](config.example.json) and [.env.example](.env.example).
 
 You can point the runtime at a different config file with `CONFIG_PATH=/path/to/config.json`.
 

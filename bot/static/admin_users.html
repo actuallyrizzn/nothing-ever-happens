@@ -96,6 +96,7 @@ h2 { margin-bottom: 1rem; font-size: 1.1rem; }
       <h1 style="font-size: 1.5rem;">Users</h1>
       <div class="nav-wrap">
         <a href="/" class="btn btn-secondary">Dashboard</a>
+        <a href="/admin/settings" class="btn btn-secondary">Settings</a>
         <a href="/admin/change-password" class="btn btn-secondary">Change password</a>
         <form method="POST" action="/logout" style="display:inline;">
           <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">

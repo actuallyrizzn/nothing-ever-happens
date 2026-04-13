@@ -140,12 +140,28 @@ def load_nothing_happens_config() -> tuple[ExchangeConfig, NothingHappensConfig]
     return _load_nothing_happens_config(_load_config_file())
 
 
+def _merge_connection_from_runtime_env(conn: dict[str, Any]) -> dict[str, Any]:
+    """Overlay PM_CONNECTION_* from the environment (set from DB at startup)."""
+    merged = dict(conn)
+    h = (os.getenv("PM_CONNECTION_HOST") or "").strip()
+    if h:
+        merged["host"] = h
+    cid = (os.getenv("PM_CONNECTION_CHAIN_ID") or "").strip()
+    if cid:
+        merged["chain_id"] = int(cid)
+    st = (os.getenv("PM_CONNECTION_SIGNATURE_TYPE") or "").strip()
+    if st:
+        merged["signature_type"] = int(st)
+    return merged
+
+
 def _load_nothing_happens_config(
     cfg: dict[str, Any],
 ) -> tuple[ExchangeConfig, NothingHappensConfig]:
     conn = cfg.get("connection", {})
     if not isinstance(conn, dict):
         raise ValueError("config.json field 'connection' must be an object")
+    conn = _merge_connection_from_runtime_env(conn)
     strat = _get_nothing_happens_section(cfg)
 
     exchange = _build_exchange_config(conn)
