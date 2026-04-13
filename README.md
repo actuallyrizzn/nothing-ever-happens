@@ -64,9 +64,9 @@ The dashboard binds `$PORT` or `DASHBOARD_PORT` when one is set.
 
 ### Dashboard authentication (VPS / public bind)
 
-When **`DASHBOARD_AUTH_SECRET`** is set (at least 32 characters), the dashboard uses the same ideas as other Decision Science Corp admin panels: **Postgres-backed admin users** (table `neh_dashboard_admin_users`, same DB as **`DATABASE_URL`** unless you set **`DASHBOARD_AUTH_DATABASE_URL`**), **bcrypt** passwords, **CSRF** on POST forms, and a **signed session cookie** (7-day TTL). Without that env var, behavior is unchanged (no login).
+When **`DASHBOARD_AUTH_SECRET`** is set (at least 32 characters), the dashboard uses the same ideas as other Decision Science Corp admin panels: **SQLite admin users** (file path via **`DASHBOARD_AUTH_DB_PATH`**, default `dashboard_auth.sqlite` — separate from **`DATABASE_URL`** / Postgres for trading data), **bcrypt** passwords, **CSRF** on POST forms, and a **signed session cookie** (7-day TTL). Without that env var, behavior is unchanged (no login).
 
-- **`DATABASE_URL`** — required whenever dashboard auth is enabled (or set **`DASHBOARD_AUTH_DATABASE_URL`** to use a different Postgres for admin rows only).
+- **`DASHBOARD_AUTH_DB_PATH`** — SQLite file for `admin_users` (use a persistent path on a VPS, e.g. under a mounted volume).
 - **`DASHBOARD_BOOTSTRAP_USERNAME`** / **`DASHBOARD_BOOTSTRAP_PASSWORD`** — optional; if the user table is empty at startup, one admin is created (useful for first deploy).
 - **`python scripts/dashboard_create_user.py --username … --password …`** — create admins anytime (requires `DASHBOARD_AUTH_SECRET` in the environment).
 

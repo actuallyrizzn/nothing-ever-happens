@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Create a dashboard admin user in Postgres (same URL as the bot) + bcrypt.
+"""Create a dashboard admin user (SQLite + bcrypt).
 
-Requires DASHBOARD_AUTH_SECRET (≥32 chars) and DATABASE_URL or
-DASHBOARD_AUTH_DATABASE_URL.
+Requires DASHBOARD_AUTH_SECRET (≥32 chars). Optional DASHBOARD_AUTH_DB_PATH
+(default dashboard_auth.sqlite in cwd).
 
 Usage:
   python scripts/dashboard_create_user.py --username mark --password 'your-secure-pass'
@@ -18,7 +18,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Repo root on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -35,22 +34,16 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    from bot.dashboard_auth import DashboardAuth, _resolve_dashboard_database_url
+    db_path = (os.getenv("DASHBOARD_AUTH_DB_PATH") or "dashboard_auth.sqlite").strip()
 
-    db_url = _resolve_dashboard_database_url()
-    if not db_url:
-        print(
-            "ERROR: Set DATABASE_URL or DASHBOARD_AUTH_DATABASE_URL for dashboard admin storage.",
-            file=sys.stderr,
-        )
-        return 1
+    from bot.dashboard_auth import DashboardAuth
 
-    auth = DashboardAuth(secret, db_url)
+    auth = DashboardAuth(secret, db_path)
     res = auth.create_user(args.username, args.password)
     if not res["success"]:
         print(res["error"], file=sys.stderr)
         return 1
-    print(f"Created admin user {args.username!r} (table neh_dashboard_admin_users)")
+    print(f"Created admin user {args.username!r} (SQLite: {db_path})")
     return 0
 
 

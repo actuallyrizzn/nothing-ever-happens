@@ -37,6 +37,9 @@ htmlcov/
 # Local config
 config.json
 
+# Dashboard admin auth (SQLite, local / VPS)
+dashboard_auth.sqlite
+
 # Vendored repos (reference only)
 vendor/
 
