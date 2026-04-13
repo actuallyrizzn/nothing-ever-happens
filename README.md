@@ -106,8 +106,8 @@ python -m pytest -q
 
 ## Documentation
 
-- **Operator / developer guides:** [`docs/README.md`](docs/README.md) (Markdown in the repo).  
-- **In the running app:** open **`/help`** on the dashboard (same content as HTML, with nav). Contextual **?** / **docs** links in the UI jump to the relevant sections.
+- **In the dashboard:** **`/help`** serves plain-language guides from [`docs/user/`](docs/user/) only.  
+- **Developers & hosting:** technical Markdown lives in [`docs/`](docs/README.md) (configuration, deployment, env keys, etc.) and is **not** shown inside the dashboard UI.
 
 ## Included Scripts
 

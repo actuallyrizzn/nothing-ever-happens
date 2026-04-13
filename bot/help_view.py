@@ -1,4 +1,8 @@
-"""Serve Markdown documentation from the repo ``docs/`` folder as HTML."""
+"""Serve **end-user** Markdown help from ``docs/user/`` as HTML.
+
+Technical / server docs live under ``docs/*.md`` in the repository only; they are
+not exposed through the dashboard ``/help`` routes.
+"""
 
 from __future__ import annotations
 
@@ -6,21 +10,24 @@ import re
 from html import escape
 from pathlib import Path
 
-# Repo root: bot/ -> parent, project root -> parent.parent
-_DOCS_ROOT = Path(__file__).resolve().parent.parent / "docs"
+# bot/ -> repo root -> docs/user (in-dashboard help only)
+_DOCS_ROOT = Path(__file__).resolve().parent.parent / "docs" / "user"
 
-# Slug -> filename (must stay under docs/; no path traversal)
+# Slug -> filename under docs/user/ (no path traversal)
 DOC_PAGES: dict[str, str] = {
     "": "README.md",
-    "configuration-overview": "configuration-overview.md",
-    "runtime-settings": "runtime-settings.md",
-    "dashboard-ui": "dashboard-ui.md",
-    "trading-and-safety": "trading-and-safety.md",
-    "strategy-parameters": "strategy-parameters.md",
-    "risk-controls": "risk-controls.md",
-    "admin-and-auth": "admin-and-auth.md",
-    "deployment": "deployment.md",
-    "troubleshooting": "troubleshooting.md",
+    "main-dashboard": "main-dashboard.md",
+    "your-account": "your-account.md",
+    "settings": "settings.md",
+    "trading-modes": "trading-modes.md",
+}
+
+NAV_LABELS: dict[str, str] = {
+    "": "Overview",
+    "main-dashboard": "Dashboard",
+    "your-account": "Your account",
+    "settings": "Settings",
+    "trading-modes": "Trading modes",
 }
 
 
@@ -67,7 +74,7 @@ def markdown_to_html(md_text: str) -> str:
 
 
 def rewrite_internal_md_links(html: str) -> str:
-    """Turn links like ``configuration-overview.md#foo`` into ``/help/...`` paths."""
+    """Turn links like ``settings.md#foo`` into ``/help/...`` paths."""
     file_to_slug = {fn: sl for sl, fn in DOC_PAGES.items()}
 
     def repl(match: re.Match[str]) -> str:
@@ -83,26 +90,14 @@ def rewrite_internal_md_links(html: str) -> str:
 
 
 def render_help_page_html(*, slug: str, md_raw: str) -> str:
-    title = escape(_title_from_markdown(md_raw, "Documentation"))
+    title = escape(_title_from_markdown(md_raw, "Help"))
     body = rewrite_internal_md_links(markdown_to_html(md_raw))
-    nav_order = [
-        "",
-        "dashboard-ui",
-        "configuration-overview",
-        "runtime-settings",
-        "trading-and-safety",
-        "strategy-parameters",
-        "risk-controls",
-        "admin-and-auth",
-        "deployment",
-        "troubleshooting",
-    ]
+    nav_order = ["", "main-dashboard", "your-account", "settings", "trading-modes"]
     nav_items = []
     for nav_slug in nav_order:
         if nav_slug not in DOC_PAGES:
             continue
-        fname = DOC_PAGES[nav_slug]
-        label = "Overview" if nav_slug == "" else fname.replace(".md", "").replace("-", " ").title()
+        label = NAV_LABELS.get(nav_slug, DOC_PAGES[nav_slug].replace(".md", "").title())
         href = "/help" if nav_slug == "" else f"/help/{nav_slug}"
         active = " active" if slug == nav_slug else ""
         nav_items.append(f'<a class="help-nav-link{active}" href="{escape(href)}">{escape(label)}</a>')
@@ -113,7 +108,7 @@ def render_help_page_html(*, slug: str, md_raw: str) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title} — NEH docs</title>
+<title>{title} — Help</title>
 <style>
 :root {{
   --bg: #0f172a;

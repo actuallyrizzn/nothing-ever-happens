@@ -30,7 +30,7 @@ Bootstrap option on first deploy: `DASHBOARD_BOOTSTRAP_USERNAME` / `DASHBOARD_BO
 
 ## Documentation (no login) {: #public-help }
 
-**`/help`** and **`/help/...`** are intentionally **public** (no session) so operators can read documentation from the login page or a phone without credentials.
+**`/help`** is intentionally **public** (no session) so people can read the **user** guides (`docs/user/`) from the login page. Technical docs in `docs/*.md` stay repository-only and are not served there.
 
 ## Related docs
 

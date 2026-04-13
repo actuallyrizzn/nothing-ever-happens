@@ -49,6 +49,7 @@ Tail of the **trade ledger**: attempts, fills, recovery events, etc. The same st
 
 ## Related docs
 
-- [Trading & safety](trading-and-safety.md) — why cash/positions differ in paper vs live.  
-- [Strategy parameters](strategy-parameters.md) — what drives **In range** and sizing.  
-- [Admin & authentication](admin-and-auth.md) — login and session behavior.
+- **In-dashboard (user):** [docs/user/main-dashboard.md](user/main-dashboard.md) — what operators see at `/help`.  
+- [Trading & safety](trading-and-safety.md) — paper vs live (technical).  
+- [Strategy parameters](strategy-parameters.md) — `PM_NH_*` reference.  
+- [Admin & authentication](admin-and-auth.md) — auth implementation.

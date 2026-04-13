@@ -20,7 +20,8 @@ def test_docs_root_exists() -> None:
 
 def test_resolve_doc_path_known_slugs() -> None:
     assert resolve_doc_path("") is not None
-    assert resolve_doc_path("runtime-settings") is not None
+    assert resolve_doc_path("settings") is not None
+    assert resolve_doc_path("configuration-overview") is None
     assert resolve_doc_path("nope") is None
 
 
@@ -32,16 +33,16 @@ def test_all_doc_pages_exist() -> None:
 
 
 def test_rewrite_internal_md_links() -> None:
-    html = '<p><a href="dashboard-ui.md#portfolio-summary">x</a></p>'
+    html = '<p><a href="main-dashboard.md#portfolio-summary">x</a></p>'
     out = rewrite_internal_md_links(html)
-    assert 'href="/help/dashboard-ui#portfolio-summary"' in out
+    assert 'href="/help/main-dashboard#portfolio-summary"' in out
 
 
 def test_render_help_page_html_includes_nav() -> None:
     md = "# Title\n\nHello.\n"
     html = render_help_page_html(slug="", md_raw=md)
     assert "Title" in html
-    assert '/help/runtime-settings"' in html or "/help/runtime-settings" in html
+    assert '/help/settings"' in html or "/help/settings" in html
 
 
 def test_markdown_to_html_has_fenced_code() -> None:

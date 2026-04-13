@@ -1,32 +1,43 @@
-# Nothing Ever Happens — documentation
+# Documentation index (repository)
 
-Operator and developer reference for the Polymarket **nothing_happens** bot, its **dashboard**, and **runtime configuration**.
+## End-user help (also in the dashboard)
 
-## Quick links
+The dashboard serves **`/help`** from Markdown in **`docs/user/`** only—plain-language guides for people using the UI. Edit those files if you want to change in-app help.
 
-| Topic | Description |
+| File | In-app URL |
 | --- | --- |
-| [Dashboard UI](dashboard-ui.md) | Main screen: summary tiles, WebSocket, positions, trades, position cap |
-| [Configuration overview](configuration-overview.md) | How `config.json`, `.env`, and SQLite `runtime_settings` combine |
-| [Runtime settings (admin form)](runtime-settings.md) | Every field on **Admin → Settings** explained |
-| [Trading & safety](trading-and-safety.md) | Paper vs live, `BOT_MODE` / `DRY_RUN` / `LIVE_TRADING_ENABLED`, keys |
-| [Strategy parameters](strategy-parameters.md) | `PM_NH_*` knobs: intervals, sizing, slippage, retries |
-| [Risk controls](risk-controls.md) | `PM_RISK_*` exposure caps and drawdown breaker |
-| [Admin & authentication](admin-and-auth.md) | Login, CSRF, users, passwords, HTTPS cookies |
-| [Deployment](deployment.md) | Process managers, reverse proxy, SQLite paths |
-| [Troubleshooting](troubleshooting.md) | Common failures and checks |
+| [user/README.md](user/README.md) | `/help` |
+| [user/main-dashboard.md](user/main-dashboard.md) | `/help/main-dashboard` |
+| [user/your-account.md](user/your-account.md) | `/help/your-account` |
+| [user/settings.md](user/settings.md) | `/help/settings` |
+| [user/trading-modes.md](user/trading-modes.md) | `/help/trading-modes` |
 
-## In-app help
+---
 
-While the bot is running, open **`/help`** on the dashboard port (e.g. `https://your-host/help`). The same pages are served from this `docs/` folder as HTML. Contextual **?** or **docs** links in the UI jump to the right section.
+## Developer & server reference (repository only)
+
+These are **not** linked from the dashboard UI. Use them when editing code, hosting, or debugging.
+
+| Topic | File |
+| --- | --- |
+| Config merge order, env, `runtime_settings` | [configuration-overview.md](configuration-overview.md) |
+| Technical dashboard / WebSocket detail | [dashboard-ui.md](dashboard-ui.md) |
+| Admin form field → env keys | [runtime-settings.md](runtime-settings.md) |
+| Live gates, keys, signature types | [trading-and-safety.md](trading-and-safety.md) |
+| `PM_NH_*` reference | [strategy-parameters.md](strategy-parameters.md) |
+| `PM_RISK_*` reference | [risk-controls.md](risk-controls.md) |
+| Auth implementation detail | [admin-and-auth.md](admin-and-auth.md) |
+| Deploy, nginx, paths | [deployment.md](deployment.md) |
+| Incident-style checks | [troubleshooting.md](troubleshooting.md) |
 
 ## Repository layout (reference)
 
 - `bot/` — runtime, strategy, exchange clients, dashboard, `runtime_settings` loader  
-- `docs/` — this documentation (Markdown)  
+- `docs/user/` — **in-app** help source  
+- `docs/*.md` — **technical** docs (this index + references above)  
 - `config.example.json` — non-secret defaults for `config.json`  
 - `.env.example` — bootstrap-only environment variables  
-- `scripts/` — CLI helpers (`dashboard_create_user.py`, `export_db.py`, …)
+- `scripts/` — CLI helpers  
 
 ---
 

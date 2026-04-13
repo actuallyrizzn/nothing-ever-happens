@@ -431,7 +431,7 @@ def render_settings_form_fields(values: dict[str, Any], fingerprints: dict[str, 
     for section, fields in sections.items():
         frag = SECTION_DOC_FRAGMENTS.get(section)
         doc_link = (
-            f' <a class="help-section-link" href="/help/runtime-settings#{frag}" '
+            f' <a class="help-section-link" href="/help/settings#{frag}" '
             'target="_blank" rel="noopener noreferrer" title="Open documentation">docs</a>'
             if frag
             else ""

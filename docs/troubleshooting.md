@@ -26,7 +26,7 @@ WAL mode and busy timeouts are enabled; heavy concurrent access from external to
 
 ## Help pages 404 {: #help-404 }
 
-Documentation files live under **`docs/`** in the repo. If `docs/*.md` is missing on the server (partial deploy), `/help/{slug}` returns **404**. Ensure the full repository is checked out.
+In-app help is built from **`docs/user/`**. If that folder is missing on the server (partial deploy), `/help` returns **404**. Ensure the full repository is checked out.
 
 ## Related docs
 
