@@ -16,7 +16,7 @@ def test_validate_live_runtime_requires_database_url():
         funder_address="0xfunder",
         live_send_enabled=True,
     )
-    with pytest.raises(ValueError, match="DATABASE_URL"):
+    with pytest.raises(ValueError, match="SQLite database URL"):
         _validate_live_runtime(exchange, None)
 
 

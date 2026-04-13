@@ -89,9 +89,10 @@ async def _run_blocking(executor: Executor | None, fn, *args, **kwargs):
 def _normalize_db_url(database_url: str | None) -> str | None:
     if not database_url:
         return None
-    if database_url.startswith("postgres://"):
-        return database_url.replace("postgres://", "postgresql://", 1)
-    return database_url
+    from bot.db import reject_non_sqlite_database_url
+
+    reject_non_sqlite_database_url(database_url)
+    return database_url.strip()
 
 
 def _parse_trade_timestamp_us(value: Any) -> int:

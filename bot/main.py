@@ -11,6 +11,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from bot.config import load_nothing_happens_config
+from bot.db import resolve_database_url
 from bot.exchange.paper import PaperExchangeClient
 from bot.live_recovery import LiveRecoveryCoordinator
 from bot.logging_config import configure_logging
@@ -40,7 +41,9 @@ def _record_supervisor_event(action: str, **extra) -> None:
 
 def _validate_live_runtime(exchange_cfg, database_url: str | None) -> None:
     if exchange_cfg.live_send_enabled and not database_url:
-        raise ValueError("DATABASE_URL is required when live order transmission is enabled")
+        raise ValueError(
+            "A SQLite database URL is required when live order transmission is enabled"
+        )
 
 
 def _build_exchange(exchange_cfg):
@@ -89,13 +92,12 @@ async def run():
     exchange_cfg, strategy_cfg = load_nothing_happens_config()
     strategy_wallet_address = _resolve_live_wallet_address(exchange_cfg)
 
-    database_url = os.getenv("DATABASE_URL")
+    database_url = resolve_database_url()
     _validate_live_runtime(exchange_cfg, database_url)
 
-    if database_url:
-        from bot.trade_ledger import init_db
+    from bot.trade_ledger import init_db
 
-        init_db(database_url)
+    init_db(database_url)
 
     logger.info(
         "bot_starting",

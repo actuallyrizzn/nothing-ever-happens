@@ -5,9 +5,9 @@ side, token, order result, and context. The ledger is NOT used for
 trading decisions — it exists purely for post-hoc analysis.
 
 Records are written to:
-  1. Postgres (trade_events table) — durable, survives dyno restarts
-  2. The Python logger at INFO level — captured by Heroku log drains
-  3. A local JSON-lines file (trades.jsonl) — for local dev / dashboard
+  1. SQLite (trade_events table) — durable when the DB file is on persistent storage
+  2. The Python logger at INFO level — captured by log drains / journald
+  3. A local JSON-lines file (trades.jsonl) — for tailing / dashboard
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ _NONCRITICAL_ACTIONS = {
 
 
 def init_db(database_url: str) -> None:
-    """Initialize Postgres connection for trade event storage."""
+    """Initialize SQLAlchemy engine and tables for trade event storage (SQLite)."""
     global _db_engine
     try:
         from bot.db import create_engine, create_tables
@@ -60,7 +60,7 @@ def _open_ledger():
 
 
 def _write_record(record: dict) -> None:
-    # 1. Postgres — durable storage
+    # 1. SQLite — durable storage
     if _db_engine is not None:
         try:
             from bot.db import trade_events_table

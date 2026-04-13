@@ -1,61 +1,39 @@
 #!/usr/bin/env python3
-"""Export all trade_events from Heroku Postgres to CSV.
+"""Export tables from the bot SQLite database to CSV.
 
 Usage:
     python scripts/export_db.py                  # exports to trade_events_export.csv
     python scripts/export_db.py -o my_dump.csv   # custom output path
 
-Requires `DATABASE_URL`, or fetches it from Heroku when `--app` or
-`HEROKU_APP_NAME` is set.
+Uses ``DATABASE_URL`` or the default SQLite file (see ``resolve_database_url`` in ``bot.db``).
 """
+
+from __future__ import annotations
 
 import argparse
 import csv
 import os
-import subprocess
 import sys
 
 import sqlalchemy as sa
 
-
-def get_database_url(app_name: str | None) -> str:
-    url = os.environ.get("DATABASE_URL")
-    if url:
-        return url
-    if not app_name:
-        print(
-            "ERROR: DATABASE_URL not set. Provide --app, set HEROKU_APP_NAME, "
-            "or export DATABASE_URL directly.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    try:
-        result = subprocess.run(
-            ["heroku", "config:get", "DATABASE_URL", "-a", app_name],
-            capture_output=True, text=True, check=True,
-        )
-        url = result.stdout.strip()
-        if url:
-            return url
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    print(f"ERROR: DATABASE_URL not set and could not fetch from Heroku app '{app_name}'", file=sys.stderr)
-    sys.exit(1)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Export trade_events to CSV")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Export bot SQLite tables to CSV")
     parser.add_argument("-o", "--output", default="trade_events_export.csv")
-    parser.add_argument("--app", default=os.environ.get("HEROKU_APP_NAME"))
-    parser.add_argument("--table", default="trade_events",
-                        choices=["trade_events", "orders", "fills", "positions", "bot_state", "all"])
+    parser.add_argument(
+        "--table",
+        default="trade_events",
+        choices=["trade_events", "orders", "fills", "positions", "bot_state", "all"],
+    )
     args = parser.parse_args()
 
-    db_url = get_database_url(args.app)
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    from bot.db import create_engine, resolve_database_url
 
-    engine = sa.create_engine(db_url, pool_pre_ping=True)
+    db_url = resolve_database_url()
+    engine = create_engine(db_url)
     meta = sa.MetaData()
     meta.reflect(bind=engine)
 

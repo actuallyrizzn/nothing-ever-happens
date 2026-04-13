@@ -30,8 +30,22 @@ Additional live-mode requirements:
 
 - `PRIVATE_KEY`
 - `FUNDER_ADDRESS` for signature types `1` and `2`
-- `DATABASE_URL`
+- **SQLite database** for durable ledger and live recovery (see **Database** below)
 - `POLYGON_RPC_URL` for proxy-wallet approvals and redemption
+
+## Database (SQLite only)
+
+All structured bot state uses **SQLite** via SQLAlchemy: `trade_events`, `ambiguous_orders`, `pending_settlements`, and related tables.
+
+- If **`DATABASE_URL`** is unset, the default file is **`nothing_happens.sqlite`** in the process working directory (absolute path is embedded in the URL).
+- Set **`DATABASE_URL=sqlite:////absolute/path/to/file.sqlite`** to choose the file explicitly.
+- Or set **`NOTHING_HAPPENS_SQLITE_PATH`** to a path/filename (resolved relative to cwd at startup) when you do not want to spell a full URL.
+
+**PostgreSQL is not supported** (no `DATABASE_URL` pointing at Postgres).
+
+The bot enables **WAL mode** and a busy timeout on SQLite connections to reduce lock contention for this single-process, single-tenant design.
+
+Dashboard admin users (optional) use a **separate** SQLite file: **`DASHBOARD_AUTH_DB_PATH`** (default `dashboard_auth.sqlite`).
 
 ## Setup
 
@@ -64,9 +78,8 @@ The dashboard binds `$PORT` or `DASHBOARD_PORT` when one is set.
 
 ### Dashboard authentication (VPS / public bind)
 
-When **`DASHBOARD_AUTH_SECRET`** is set (at least 32 characters), the dashboard uses the same ideas as other Decision Science Corp admin panels: **SQLite admin users** (file path via **`DASHBOARD_AUTH_DB_PATH`**, default `dashboard_auth.sqlite` — separate from **`DATABASE_URL`** / Postgres for trading data), **bcrypt** passwords, **CSRF** on POST forms, and a **signed session cookie** (7-day TTL). Without that env var, behavior is unchanged (no login).
+When **`DASHBOARD_AUTH_SECRET`** is set (at least 32 characters), the dashboard uses **SQLite admin users** (via **`DASHBOARD_AUTH_DB_PATH`**, default `dashboard_auth.sqlite`), **bcrypt** passwords, **CSRF** on POST forms, and a **signed session cookie** (7-day TTL). Without that env var, behavior is unchanged (no login).
 
-- **`DASHBOARD_AUTH_DB_PATH`** — SQLite file for `admin_users` (use a persistent path on a VPS, e.g. under a mounted volume).
 - **`DASHBOARD_BOOTSTRAP_USERNAME`** / **`DASHBOARD_BOOTSTRAP_PASSWORD`** — optional; if the user table is empty at startup, one admin is created (useful for first deploy).
 - **`python scripts/dashboard_create_user.py --username … --password …`** — create admins anytime (requires `DASHBOARD_AUTH_SECRET` in the environment).
 
@@ -74,29 +87,11 @@ Routes: **`/login`**, **`/logout`** (POST), **`/admin/users`**, **`/admin/change
 
 Use **HTTPS** in production (`Secure` cookies follow `X-Forwarded-Proto: https` behind a reverse proxy).
 
-## Heroku Workflow
+## Deployment (single host / VPS)
 
-The shell helpers use either an explicit app name argument or `HEROKU_APP_NAME`.
+Run `python -m bot.main` under your process manager (systemd, Docker, etc.). Set the same env vars as in `.env.example` (keys, `POLYGON_RPC_URL`, SQLite paths, optional `PORT` for the dashboard).
 
-```bash
-export HEROKU_APP_NAME=<your-app>
-./alive.sh
-./logs.sh
-./live_enabled.sh
-./live_disabled.sh
-./kill.sh
-```
-
-Generic deployment flow:
-
-```bash
-heroku config:set BOT_MODE=live DRY_RUN=false LIVE_TRADING_ENABLED=true -a "$HEROKU_APP_NAME"
-heroku config:set PRIVATE_KEY=<key> FUNDER_ADDRESS=<addr> POLYGON_RPC_URL=<url> DATABASE_URL=<url> -a "$HEROKU_APP_NAME"
-git push heroku <branch>:main
-heroku ps:scale web=1 worker=0 -a "$HEROKU_APP_NAME"
-```
-
-Only run the `web` dyno. The `worker` entry exists only to fail fast if it is started accidentally.
+Optional shell helpers (`alive.sh`, `logs.sh`, …) target **Heroku-style** CLIs if you still use them; the app itself does not require Heroku.
 
 ## Tests
 
@@ -109,10 +104,10 @@ python -m pytest -q
 
 | Script | Purpose |
 | --- | --- |
-| `scripts/db_stats.py` | Inspect live database table counts and recent activity |
-| `scripts/export_db.py` | Export live tables from `DATABASE_URL` or a Heroku app |
+| `scripts/db_stats.py` | Inspect `trade_events` in the SQLite DB (last 2h stats) |
+| `scripts/export_db.py` | Export tables from the SQLite DB to CSV |
 | `scripts/wallet_history.py` | Pull positions, trades, and balances for the configured wallet |
-| `scripts/parse_logs.py` | Convert Heroku JSON logs into readable terminal or HTML output |
+| `scripts/parse_logs.py` | Convert JSON logs into readable terminal or HTML; `--db` reads `trade_events` from SQLite |
 
 ## Repository Hygiene
 

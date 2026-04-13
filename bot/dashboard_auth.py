@@ -1,7 +1,7 @@
 """Dashboard admin auth — SQLite users, bcrypt, signed session cookies, CSRF.
 
 Admin accounts are stored only in a local SQLite file (default `dashboard_auth.sqlite`),
-separate from `DATABASE_URL` / Postgres used by the trading ledger.
+separate from the main bot SQLite file (`DATABASE_URL` / `NOTHING_HAPPENS_SQLITE_PATH`).
 """
 
 from __future__ import annotations

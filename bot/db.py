@@ -1,6 +1,51 @@
+import os
+import sqlite3
+
 import sqlalchemy as sa
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 metadata = sa.MetaData()
+
+_DEFAULT_SQLITE_FILENAME = "nothing_happens.sqlite"
+
+
+def reject_non_sqlite_database_url(url: str) -> None:
+    """Raise if URL points at a non-SQLite engine (Postgres is not supported)."""
+    u = url.strip().lower()
+    if u.startswith("postgres://") or u.startswith("postgresql://"):
+        raise ValueError(
+            "PostgreSQL is not supported. Use SQLite: omit DATABASE_URL to use the default "
+            f"file, set NOTHING_HAPPENS_SQLITE_PATH, or DATABASE_URL=sqlite:////absolute/path.db"
+        )
+    if u.startswith("mysql://") or u.startswith("mariadb://"):
+        raise ValueError("Only SQLite database URLs are supported.")
+
+
+def resolve_database_url() -> str:
+    """Return SQLAlchemy URL for the bot database (SQLite only).
+
+    If ``DATABASE_URL`` is unset, uses ``NOTHING_HAPPENS_SQLITE_PATH`` or
+    ``nothing_happens.sqlite`` in the current working directory.
+    """
+    raw = (os.getenv("DATABASE_URL") or "").strip()
+    if raw:
+        reject_non_sqlite_database_url(raw)
+        return raw
+    path = (os.getenv("NOTHING_HAPPENS_SQLITE_PATH") or _DEFAULT_SQLITE_FILENAME).strip()
+    abs_path = os.path.abspath(path)
+    return f"sqlite:///{abs_path}"
+
+
+@event.listens_for(Engine, "connect")
+def _sqlite_connect_pragma(dbapi_connection, _connection_record):
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cur = dbapi_connection.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA busy_timeout=30000")
+    cur.close()
+
 
 orders_table = sa.Table(
     "orders",
@@ -132,10 +177,12 @@ ambiguous_orders_table = sa.Table(
 
 
 def create_engine(database_url: str) -> sa.Engine:
-    # Heroku uses postgres:// but SQLAlchemy requires postgresql://
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    return sa.create_engine(database_url, pool_pre_ping=True)
+    url = database_url.strip()
+    reject_non_sqlite_database_url(url)
+    kwargs: dict = {"pool_pre_ping": True}
+    if url.startswith("sqlite"):
+        kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
+    return sa.create_engine(url, **kwargs)
 
 
 def create_tables(engine: sa.Engine) -> None:

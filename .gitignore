@@ -37,7 +37,9 @@ htmlcov/
 # Local config
 config.json
 
-# Dashboard admin auth (SQLite, local / VPS)
+# SQLite databases (local / VPS)
+nothing_happens.sqlite
+nothing_happens.sqlite-*
 dashboard_auth.sqlite
 
 # Vendored repos (reference only)

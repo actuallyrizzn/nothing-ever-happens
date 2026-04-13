@@ -690,11 +690,13 @@ h1 { font-size: 1.2rem; margin-bottom: 0.75rem; color: #f0f0f0; font-family: sys
 
 
 def load_events_from_db(database_url: str, limit: int = 5000) -> list[dict]:
-    """Load trade events from Postgres and convert to classified events."""
+    """Load trade events from SQLite and convert to classified events."""
     import sqlalchemy as sa
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    engine = sa.create_engine(database_url)
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from bot.db import create_engine
+
+    engine = create_engine(database_url)
     with engine.connect() as conn:
         rows = conn.execute(
             sa.text("SELECT * FROM trade_events ORDER BY ts ASC LIMIT :limit"),
@@ -722,10 +724,10 @@ def main():
     header_printed = False
 
     if db_mode:
-        database_url = os.environ.get("DATABASE_URL", "")
-        if not database_url:
-            print("ERROR: DATABASE_URL not set", file=sys.stderr)
-            sys.exit(1)
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from bot.db import resolve_database_url
+
+        database_url = resolve_database_url()
         events = load_events_from_db(database_url)
         if html_mode:
             print(events_to_html(events))
