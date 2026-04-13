@@ -157,6 +157,7 @@ async def run():
         logger.info("redeemer_enabled")
 
     dashboard_port = os.getenv("PORT") or os.getenv("DASHBOARD_PORT")
+    dashboard_host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
     dashboard_task = None
     if dashboard_port:
         from bot.dashboard import DashboardServer
@@ -164,6 +165,7 @@ async def run():
         dashboard = DashboardServer(
             portfolio_state=portfolio_state,
             nothing_happens_control=nothing_happens_control,
+            host=dashboard_host,
             port=int(dashboard_port),
             exchange=exchange,
         )
