@@ -51,7 +51,13 @@ def _build_exchange(exchange_cfg):
         from bot.exchange.polymarket_clob import PolymarketClobExchangeClient
 
         return PolymarketClobExchangeClient(exchange_cfg, allow_trading=True)
-    return PaperExchangeClient()
+    from bot.paper_wallet import load_paper_state, save_paper_state
+    from bot.trade_ledger import get_db_engine
+
+    engine = get_db_engine()
+    snapshot = load_paper_state(engine)
+    persist = (lambda s: save_paper_state(engine, s)) if engine is not None else None
+    return PaperExchangeClient(persist_save=persist, initial_state=snapshot)
 
 
 def _resolve_live_wallet_address(exchange_cfg) -> str | None:

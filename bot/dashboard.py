@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import time
+import urllib.parse
 from collections import deque
 from html import escape as html_escape
 from pathlib import Path
@@ -29,10 +30,12 @@ from bot.dashboard_auth import (
     render_login_page,
     session_cookie_headers,
 )
+from bot.exchange.paper import PaperExchangeClient
 from bot.nothing_happens_control import NothingHappensControlState
 from bot.help_view import render_help_page_html, resolve_doc_path
 from bot.restart_flag import restart_via_flag_enabled, write_restart_flag_after_settings_save
 from bot.runtime_settings import build_form_values, render_settings_form_fields, save_settings_from_form
+from bot.paper_wallet import default_paper_state
 from bot.trade_ledger import get_db_engine
 
 logger = logging.getLogger(__name__)
@@ -326,11 +329,25 @@ class DashboardServer:
                     "NEH_RESTART_FLAG_PATH, so no restart was scheduled. Ask your operator to "
                     "set the env var and cron script, or restart the process on the host."
                 )
+        paper_q = request.rel_url.query.get("paper", "")
+        if paper_q == "synced":
+            msg = (
+                "Paper wallet rebuilt from live Polymarket collateral and Data API positions. "
+                "Open paper orders were cleared."
+            )
+        elif paper_q == "cleared":
+            msg = "Paper wallet reset to defaults ($100 USDC, no conditional shares, no open paper orders)."
+        elif paper_q == "bad_action":
+            msg = "Unknown paper wallet action."
+        paper_err = request.rel_url.query.get("paper_err", "")
+        if paper_err:
+            msg = f"Paper wallet action failed: {urllib.parse.unquote(paper_err)}"
         body = render_admin_settings_page(
             STATIC_DIR,
             csrf_token=csrf,
             form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
             restart_request_block=_admin_settings_restart_block(),
+            paper_wallet_block=self._paper_wallet_admin_html(csrf),
             message=msg,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
@@ -393,6 +410,7 @@ class DashboardServer:
             csrf_token=sess.csrf,
             form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
             restart_request_block=_admin_settings_restart_block(),
+            paper_wallet_block=self._paper_wallet_admin_html(sess.csrf),
             error=err,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
@@ -662,6 +680,66 @@ class DashboardServer:
             except Exception as exc:
                 logger.debug("Resolution fetch failed for %s: %s", slug, exc)
 
+    def _paper_wallet_admin_html(self, csrf: str) -> str:
+        if not isinstance(self._exchange, PaperExchangeClient):
+            return ""
+        return (
+            '<div class="info-box mb-2" style="margin-top:1.5rem;">'
+            '<h2 class="section-title">Paper wallet (simulated)</h2>'
+            '<p class="muted">Balances, conditional shares, and open paper orders are saved in the bot SQLite '
+            "(<code>bot_state.paper_exchange_v1</code>) so restarts continue the simulation. "
+            "The trade ledger (<code>trade_events</code> + <code>TRADE_LEDGER_PATH</code>) stays a separate audit trail.</p>"
+            '<form method="POST" action="/admin/paper-wallet" style="margin-top:0.75rem;">'
+            f'<input type="hidden" name="csrf_token" value="{html_escape(csrf)}">'
+            '<input type="hidden" name="paper_wallet_action" value="sync_chain">'
+            '<button type="submit" class="btn">Rebuild paper wallet from Polygon / Polymarket</button>'
+            "</form>"
+            '<form method="POST" action="/admin/paper-wallet" style="margin-top:0.75rem;">'
+            f'<input type="hidden" name="csrf_token" value="{html_escape(csrf)}">'
+            '<input type="hidden" name="paper_wallet_action" value="clear_default">'
+            '<button type="submit" class="btn btn-secondary">Reset paper wallet to defaults ($100, no positions)</button>'
+            "</form></div>"
+        )
+
+    async def _admin_paper_wallet_post(self, request: web.Request) -> web.Response:
+        if self._auth is None:
+            raise web.HTTPNotFound()
+        uid = int(request["dashboard_uid"])
+        sess = self._auth.read_session(read_cookie(request, SESSION_COOKIE))
+        if sess is None or sess.user_id != uid:
+            return web.Response(status=403, text="Session invalid")
+        data = await request.post()
+        if not self._auth.verify_csrf(sess, str(data.get("csrf_token") or "")):
+            return web.Response(status=403, text="CSRF validation failed")
+        if not isinstance(self._exchange, PaperExchangeClient):
+            return web.Response(
+                status=400,
+                text="Paper wallet actions only apply when the bot is in paper / dry-run mode.",
+                content_type="text/plain",
+                charset="utf-8",
+            )
+        action = str(data.get("paper_wallet_action") or "").strip()
+        engine = get_db_engine()
+        if engine is None:
+            return web.Response(status=503, text="Database unavailable", content_type="text/plain")
+        try:
+            if action == "clear_default":
+                self._exchange.apply_state(default_paper_state())
+                raise web.HTTPFound(location="/admin/settings?paper=cleared")
+            if action == "sync_chain":
+                from bot.paper_chain_sync import build_snapshot_from_chain
+
+                snap = await asyncio.to_thread(build_snapshot_from_chain)
+                self._exchange.apply_state(snap)
+                raise web.HTTPFound(location="/admin/settings?paper=synced")
+            raise web.HTTPFound(location="/admin/settings?paper=bad_action")
+        except web.HTTPFound:
+            raise
+        except Exception as exc:
+            logger.warning("paper_wallet_admin_action_failed", exc_info=True)
+            q = urllib.parse.quote(str(exc)[:240], safe="")
+            raise web.HTTPFound(location=f"/admin/settings?paper_err={q}") from exc
+
     def build_app(self) -> web.Application:
         @web.middleware
         async def auth_middleware(request: web.Request, handler):
@@ -705,6 +783,7 @@ class DashboardServer:
             app.router.add_post("/admin/change-password", self._change_password_post)
             app.router.add_get("/admin/settings", self._admin_settings_get)
             app.router.add_post("/admin/settings", self._admin_settings_post)
+            app.router.add_post("/admin/paper-wallet", self._admin_paper_wallet_post)
         if self._backtest_jobs is not None:
             self._backtest_jobs.register_routes(app)
         return app

@@ -4,6 +4,8 @@
 
 If your operator enabled **restart from the web** on the server, you may see **Request bot restart after this save**. Checking it writes a small flag file; a **cron** job on the machine restarts the bot (usually within about a minute). If that checkbox does not appear, restarts are still done on the host the old-fashioned way.
 
+When the bot is in **paper / dry-run** mode, the bottom of this page shows **Paper wallet** actions: rebuild simulated balances from your **live Polymarket account** (read-only), or reset to the default **$100** practice wallet. Simulated state is stored in the bot database; the separate **trade ledger** file and `trade_events` table remain the audit trail.
+
 ## Trading mode {: #trading-mode }
 
 - **Bot mode** — **practice (paper)** vs **live**. Live does not send real orders by itself; see **[Trading modes](trading-modes.md#what-live-means)**.  

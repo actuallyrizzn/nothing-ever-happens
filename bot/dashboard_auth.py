@@ -379,6 +379,7 @@ def render_admin_settings_page(
     csrf_token: str,
     form_fields_html: str,
     restart_request_block: str = "",
+    paper_wallet_block: str = "",
     message: str = "",
     error: str = "",
 ) -> str:
@@ -387,6 +388,7 @@ def render_admin_settings_page(
         html.replace("{{CSRF_TOKEN}}", escape(csrf_token))
         .replace("{{FORM_FIELDS}}", form_fields_html)
         .replace("{{RESTART_REQUEST_BLOCK}}", restart_request_block)
+        .replace("{{PAPER_WALLET_BLOCK}}", paper_wallet_block)
         .replace("{{MESSAGE}}", f'<div class="info-box mb-2"><p>{escape(message)}</p></div>' if message else "")
         .replace("{{ERROR}}", f'<p class="error">{escape(error)}</p>' if error else "")
     )
