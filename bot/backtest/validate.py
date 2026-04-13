@@ -64,6 +64,11 @@ def validate_archive(archive: Path) -> ValidateReport:
             continue
 
         n = table.num_rows
+        if coverages is not None and idx < len(coverages):
+            cov = str(coverages[idx] or "")
+            if cov not in {"empty_history"} and n == 0:
+                report.warnings.append(f"coverage_mismatch_empty_file:{token_id}")
+
         if n == 0:
             report.warnings.append(f"empty_series:{token_id}")
             continue
@@ -83,11 +88,6 @@ def validate_archive(archive: Path) -> ValidateReport:
                 report.ok = False
                 report.errors.append(f"suspicious_t_unit:{token_id}:{t}")
                 break
-
-        if coverages is not None and idx < len(coverages):
-            cov = str(coverages[idx] or "")
-            if cov not in {"empty_history"} and n == 0:
-                report.warnings.append(f"coverage_mismatch_empty_file:{token_id}")
 
         if starts is not None and ends is not None and ts and idx < len(starts) and idx < len(ends):
             st = starts[idx]
