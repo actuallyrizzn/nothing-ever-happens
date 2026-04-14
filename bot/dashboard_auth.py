@@ -380,6 +380,8 @@ def render_admin_settings_page(
     form_fields_html: str,
     restart_request_block: str = "",
     paper_wallet_block: str = "",
+    backtest_nav_link: str = "",
+    backtest_disabled_hint: str = "",
     message: str = "",
     error: str = "",
 ) -> str:
@@ -389,6 +391,8 @@ def render_admin_settings_page(
         .replace("{{FORM_FIELDS}}", form_fields_html)
         .replace("{{RESTART_REQUEST_BLOCK}}", restart_request_block)
         .replace("{{PAPER_WALLET_BLOCK}}", paper_wallet_block)
+        .replace("{{BACKTEST_NAV_LINK}}", backtest_nav_link)
+        .replace("{{BACKTEST_DISABLED_HINT}}", backtest_disabled_hint)
         .replace("{{MESSAGE}}", f'<div class="info-box mb-2"><p>{escape(message)}</p></div>' if message else "")
         .replace("{{ERROR}}", f'<p class="error">{escape(error)}</p>' if error else "")
     )

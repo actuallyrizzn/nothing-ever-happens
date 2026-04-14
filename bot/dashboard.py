@@ -342,12 +342,15 @@ class DashboardServer:
         paper_err = request.rel_url.query.get("paper_err", "")
         if paper_err:
             msg = f"Paper wallet action failed: {urllib.parse.unquote(paper_err)}"
+        bt_nav, bt_hint = self._settings_backtest_extras()
         body = render_admin_settings_page(
             STATIC_DIR,
             csrf_token=csrf,
             form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
             restart_request_block=_admin_settings_restart_block(),
             paper_wallet_block=self._paper_wallet_admin_html(csrf),
+            backtest_nav_link=bt_nav,
+            backtest_disabled_hint=bt_hint,
             message=msg,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
@@ -405,12 +408,15 @@ class DashboardServer:
                     loc += "&restart=missing"
             raise web.HTTPFound(location=loc)
         ctx = build_form_values(engine)
+        bt_nav, bt_hint = self._settings_backtest_extras()
         body = render_admin_settings_page(
             STATIC_DIR,
             csrf_token=sess.csrf,
             form_fields_html=render_settings_form_fields(ctx["values"], ctx["fingerprints"]),
             restart_request_block=_admin_settings_restart_block(),
             paper_wallet_block=self._paper_wallet_admin_html(sess.csrf),
+            backtest_nav_link=bt_nav,
+            backtest_disabled_hint=bt_hint,
             error=err,
         )
         return web.Response(text=body, content_type="text/html", charset="utf-8")
@@ -679,6 +685,22 @@ class DashboardServer:
                 logger.info("Resolution: %s -> %s", slug, display_winner)
             except Exception as exc:
                 logger.debug("Resolution fetch failed for %s: %s", slug, exc)
+
+    def _settings_backtest_extras(self) -> tuple[str, str]:
+        """Nav button HTML when backtest routes exist; hint when BACKTEST_UI is off."""
+        if self._backtest_jobs is not None:
+            return (
+                '<a href="/admin/backtest" class="btn btn-secondary">Backtest</a>',
+                "",
+            )
+        return (
+            "",
+            '<p class="muted" style="margin-top:0.5rem;font-size:0.875rem;line-height:1.5;">'
+            "<strong>Backtest UI</strong> is not enabled on this server. Set "
+            "<code>BACKTEST_UI=1</code> in the bot environment and restart. Then use the "
+            "<strong>Backtest</strong> button here and on the main dashboard, or open "
+            "<code>/admin/backtest</code>.</p>",
+        )
 
     def _paper_wallet_admin_html(self, csrf: str) -> str:
         if not isinstance(self._exchange, PaperExchangeClient):

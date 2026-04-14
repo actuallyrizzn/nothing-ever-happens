@@ -168,6 +168,7 @@ h1 { font-size: 1.5rem; }
       <div class="nav-wrap">
         <a href="/help" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">Help</a>
         <a href="/" class="btn btn-secondary">Dashboard</a>
+        {{BACKTEST_NAV_LINK}}
         <a href="/admin/users" class="btn btn-secondary">Users</a>
         <a href="/admin/change-password" class="btn btn-secondary">Password</a>
         <form method="POST" action="/logout" style="display:inline;">
@@ -185,6 +186,7 @@ h1 { font-size: 1.5rem; }
         Use the restart checkbox if your host wired it up. <a href="/help/settings" target="_blank" rel="noopener noreferrer">Settings help</a>
         · <a href="/help" target="_blank" rel="noopener noreferrer">Help</a>
       </p>
+      {{BACKTEST_DISABLED_HINT}}
       <form method="POST" action="/admin/settings">
         <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
         {{RESTART_REQUEST_BLOCK}}

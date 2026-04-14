@@ -43,3 +43,7 @@ You can sort the table by clicking column headers.
 This list is a **recent history** of what the bot tried and what happened—buys, sells, messages, and similar events. It is there so you can see the story without digging through raw logs.
 
 For more on practice vs real money, see **[Trading modes](trading-modes.md)**. To change how aggressive or cautious the bot is, use **[Settings](settings.md)**.
+
+## Backtest jobs {: #backtest-ui }
+
+If your operator turned on the backtest UI (`BACKTEST_UI=1` on the server), a **Backtest** link appears in the top bar (next to Settings) and on the **Settings** page. It opens **`/admin/backtest`**, where you can queue offline backtest jobs. If you do not see **Backtest**, the feature is off until the environment variable is set and the bot restarted.
